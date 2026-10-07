@@ -1,0 +1,115 @@
+##############################################################################
+# SnowHealth Demand Forecasting ML Pipeline
+##############################################################################
+definitions:
+
+  # Root task - weekly trigger
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_PIPELINE_ROOT
+    warehouse: COMPUTE_WH
+    schedule:
+      type: cron
+      value: 0 6 * * 1 America/New_York
+    definition: |
+      SELECT 'SnowHealth ML Pipeline triggered at ' || CURRENT_TIMESTAMP()::STRING AS status
+
+  # Stage 1: Feature Engineering
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_FEATURE_ENGINEERING
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_PIPELINE_ROOT
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_FEATURE_ENGINEERING
+      entrypoint: feature_engineering.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          compute_options:
+            compute_pool: COMPUTE_WH
+          language: python
+          properties:
+            result_stage: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_ML_RESULTS_STAGE
+
+  # Stage 2a: Train XGBoost (parallel)
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_TRAIN_XGBOOST
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_FEATURE_ENGINEERING
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_MODEL_TRAINING
+      entrypoint: model_training.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          compute_options:
+            compute_pool: COMPUTE_WH
+          language: python
+          properties:
+            result_stage: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_ML_RESULTS_STAGE
+
+  # Stage 2b: Train LightGBM (parallel)
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_TRAIN_LIGHTGBM
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_FEATURE_ENGINEERING
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_MODEL_TRAINING
+      entrypoint: model_training.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          compute_options:
+            compute_pool: COMPUTE_WH
+          language: python
+          properties:
+            result_stage: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_ML_RESULTS_STAGE
+
+  # Stage 3: Model Evaluation (quality gate: RMSE < 10)
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_MODEL_EVALUATION
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_TRAIN_XGBOOST
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_TRAIN_LIGHTGBM
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_MODEL_EVALUATION
+      entrypoint: model_evaluation.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          compute_options:
+            compute_pool: COMPUTE_WH
+          language: python
+          properties:
+            result_stage: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_ML_RESULTS_STAGE
+
+  # Stage 4: Model Deployment (promote default + smoke test)
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_TASK_MODEL_EVALUATION
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_MODEL_DEPLOYMENT
+      entrypoint: model_deployment.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          compute_options:
+            compute_pool: COMPUTE_WH
+          language: python
+          properties:
+            result_stage: SNOWHEALTH_ML_DB.SNOWHEALTH_ML_SCHEMA.SNOWHEALTH_ML_RESULTS_STAGE

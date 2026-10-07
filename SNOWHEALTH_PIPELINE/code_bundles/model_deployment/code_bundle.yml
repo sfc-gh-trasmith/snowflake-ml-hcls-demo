@@ -1,0 +1,3 @@
+configuration:
+  compute_pool: COMPUTE_WH
+  language: python
