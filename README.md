@@ -1,8 +1,8 @@
-# SnowHealth Demand Forecasting - ML Solution
+# SnowHealth Demand Forecasting — ML Solution
 
 ## Overview
 
-End-to-end machine learning time-series forecasting solution for a retail pharmacy company (SnowHealth) to predict demand for prescription medications, over-the-counter products, and pharmacy services. The solution covers data ingestion, feature engineering, model training, hyperparameter tuning, deployment, and monitoring across SKUs, stores, regions, fulfillment channels, and time periods.
+End-to-end machine learning solution for retail pharmacy demand forecasting built entirely on **Snowflake ML**. Predicts units sold per SKU-store combination using XGBoost, covering the full ML lifecycle: data ingestion, feature engineering, model training, hyperparameter tuning, batch and real-time inference, model explainability, and drift monitoring.
 
 ## Business Use Cases
 
@@ -10,122 +10,142 @@ End-to-end machine learning time-series forecasting solution for a retail pharma
 |----------|------------------------|
 | **Inventory Replenishment** | Predict units sold per SKU-store to optimize reorder points and safety stock |
 | **Medication Purchasing** | Forecast prescription drug demand to negotiate volume contracts with suppliers |
-| **Store & Fulfillment Planning** | Model demand by channel (in-store, online, drive-thru, curbside) for staffing |
+| **Store & Fulfillment Planning** | Model demand by channel (in-store, online, drive-thru) for staffing |
 | **Distribution** | Regional demand forecasts to optimize DC-to-store allocation |
 | **Workforce Scheduling** | Predict service demand (flu shots, COVID tests) for pharmacy staff scheduling |
-| **Capacity Management** | Store-level demand trends to inform expansion or right-sizing decisions |
-| **Customer Service** | Reduce stockouts and improve fill rates through accurate demand prediction |
 
 ## Architecture
 
 ```
 SNOWHEALTH_ML_DB (Database)
-├── SNOWHEALTH_RAW (Schema)          - Raw transaction data
-│   └── SNOWHEALTH_DEMAND_TRANSACTIONS (10,000 rows)
-├── SNOWHEALTH_FEATURES (Schema)     - Feature Store
-│   ├── SNOWHEALTH_DEMAND_FEATURES   - Engineered feature table
-│   ├── SNOWHEALTH_SKU_STORE         - Entity (join keys: SKU_ID, STORE_ID)
-│   └── SNOWHEALTH_DEMAND_FV (V01)   - Managed FV (DT, 10-min refresh, online serving)
-└── SNOWHEALTH_MODELS (Schema)       - Model Registry & Monitoring
-    ├── SNOWHEALTH_DEMAND_FORECAST   - Registered model (baseline_v1, tuned_v1)
-    ├── SNOWHEALTH_DEMAND_PREDICTIONS - Prediction output table
-    ├── SNOWHEALTH_DEMAND_MONITOR_SOURCE - Monitoring source table
-    └── SNOWHEALTH_DEMAND_DRIFT_ALERT - Drift detection alert
+├── SNOWHEALTH_RAW (Schema)              Raw transaction data
+│   └── SNOWHEALTH_DEMAND_TRANSACTIONS   10,000 synthetic transactions
+│
+├── SNOWHEALTH_FEATURES (Schema)         Feature Store
+│   ├── SNOWHEALTH_DEMAND_FEATURES       Engineered feature table (change tracking)
+│   ├── SNOWHEALTH_SKU_STORE             Entity (join keys: SKU_ID, STORE_ID)
+│   └── SNOWHEALTH_DEMAND_FV/V01         Managed Feature View (DT, 10-min refresh)
+│                                        Postgres-backed online serving (1-min lag)
+│
+├── SNOWHEALTH_MODELS (Schema)           Model Registry, Inference & Monitoring
+│   ├── SNOWHEALTH_DEMAND_FORECAST       Model (BASELINE_V1, TUNED_V1 [default])
+│   ├── SNOWHEALTH_DEMAND_PREDICTIONS    Predictions table (source for monitor)
+│   ├── SNOWHEALTH_MONITOR_BASELINE      Baseline snapshot for drift comparison
+│   ├── SNOWHEALTH_DEMAND_MONITOR        Model Version Monitor (PSI, Wasserstein)
+│   ├── SNOWHEALTH_CHAMPION_SVC          SPCS inference service (BASELINE_V1)
+│   ├── SNOWHEALTH_CHALLENGER_SVC        SPCS inference service (TUNED_V1)
+│   └── SNOWHEALTH_GATEWAY              Traffic-split gateway (90/10)
+│
+└── SNOWHEALTH_COMPUTE_POOL              CPU_X64_S, 1-5 nodes (ML Jobs + serving)
 ```
 
 ## Project Structure
 
 ```
-├── source/                          # Python modules (imported by notebooks)
-│   ├── config.py                    # Configuration: DB names, model params, feature lists
-│   ├── feature_engineering.py       # Feature transforms: calendar, cyclical, lag, interaction
-│   └── model_utils.py              # Training, evaluation, comparison, artifact helpers
+├── source/
+│   ├── config.py                  Central config: DB names, model params, feature lists
+│   ├── synthetic_data.py          Generates 10K synthetic retail pharmacy transactions
+│   ├── feature_engineering.py     Feature transforms: calendar, cyclical, lag, interaction
+│   └── model_utils.py            Training, evaluation, comparison, SHAP helpers
 │
-├── 01_setup.ipynb                   # Notebook 1: Infrastructure & data exploration
-├── 02_feature_engineering.ipynb     # Notebook 2: Feature engineering & online feature store
-├── 03_model_training.ipynb          # Notebook 3: Model training (XGBoost + LightGBM)
-├── 04_hyperparameter_tuning.ipynb   # Notebook 4: HPO comparison (baseline vs tuned)
-├── 05_deployment_monitoring.ipynb   # Notebook 5: Deployment & drift monitoring
-├── 06_drift_simulation.ipynb        # Notebook 6: 1M inference load test with drift
-└── README.md                        # This documentation
+├── notebooks/
+│   ├── 01_setup.ipynb             Infrastructure setup & data exploration
+│   ├── 02_feature_engineer.ipynb  Feature engineering & Postgres-backed online Feature Store
+│   ├── 03_model_train.ipynb       XGBoost + LightGBM with Experiment Tracking
+│   ├── 04_model_tune.ipynb        Snowflake ML Tuner (Ray on SPCS compute pool)
+│   ├── 05_inference.ipynb         Batch + champion/challenger + SHAP explainability
+│   ├── 06_model_monitor.ipynb     Drift detection with Model Version Monitor
+│   └── 07_ml_pipeline.ipynb       Pipeline Builder + Code Bundles + DCM demo
+│
+├── pipeline/                      DCM project — Pipeline Builder + Code Bundles
+│   ├── manifest.yml               Project config (target, owner)
+│   ├── sources/definitions/
+│   │   └── pipeline.yml           3 code bundles + 4 tasks (DAG)
+│   └── code_bundles/              feature_engineering, model_training, model_deployment
+└── README.md
 ```
 
-## Notebooks Walkthrough
+## Notebooks
 
-### 1. 01_setup.ipynb - Infrastructure Setup
-- Validates database objects (SNOWHEALTH_ML_DB, schemas)
-- Explores the synthetic dataset (10,000 transactions)
-- Visualizes data distributions across regions, categories, channels
-- Shows daily demand trend with rolling averages
+### 01_setup — Infrastructure & Data
+- Creates `SNOWHEALTH_ML_DB` database with 3 schemas
+- Creates `SNOWHEALTH_COMPUTE_POOL` (CPU_X64_S, 1-5 nodes, auto-resume)
+- Generates and loads 10K synthetic pharmacy transactions
+- Data exploration visualizations
 
-### 2. 02_feature_engineering.ipynb - Feature Engineering & Online Feature Store
-- **Calendar features**: Month, quarter, week of year, weekend/holiday flags
-- **Cyclical encoding**: sin/cos transforms for month and day-of-week
-- **Lag features**: 7-day, 14-day, 30-day lag values per SKU-store
-- **Rolling averages**: 7-day and 30-day rolling mean demand
-- **Interaction features**: price x promotion, inventory turnover ratio, seasonal index
-- Registers entity (SNOWHEALTH_SKU_STORE) and **managed Feature View** (Dynamic Table, 10-min refresh)
-- Enables **online feature serving** with 1-minute target lag for low-latency key-value lookups
-- Verifies online store with a sample lookup
+### 02_feature_engineer — Feature Store
+- Calendar, cyclical (sin/cos), lag (7/14/30d), rolling average, and interaction features
+- Registers **Entity** (`SKU_ID`, `STORE_ID`) and **managed Feature View** (Dynamic Table, 10-min refresh)
+- Enables **Postgres-backed online serving** (`OnlineStoreType.POSTGRES`, 1-min target lag)
+- Verifies Feature Store lineage
 
-### 3. 03_model_training.ipynb - Model Training with Experiment Tracking
-- **Two models trained**: XGBoost Regressor and LightGBM Regressor
-- **Snowflake Experiment Tracking**: Logs parameters, metrics, and feature importance artifacts
-- **Feature importance artifacts**: Saved as JSON files per model run
-- Side-by-side model comparison (MAE, RMSE, MAPE, R2)
-- Best model (LightGBM) registered to Snowflake Model Registry with `target_platforms=["WAREHOUSE"]`
+### 03_model_train — Experiment Tracking & Model Registry
+- Trains XGBoost and LightGBM regressors
+- **Snowflake Experiment Tracking**: logs params, metrics, feature importance per run
+- Registers best model as `BASELINE_V1` in Model Registry
+- Feature importance visualization and model comparison
 
-### 4. 04_hyperparameter_tuning.ipynb - HPO Comparison
-- **Baseline**: Default XGBoost parameters
-- **Tuned**: RandomizedSearchCV over 20 configurations, 3-fold CV
-- **Search space**: n_estimators, max_depth, learning_rate, subsample, colsample_bytree, min_child_weight, reg_alpha, reg_lambda
-- Comparison report with improvement metrics
-- Tuned model registered as `tuned_v1` and set as default version
-- Includes reference code for Snowflake ML Tuner API (Container Runtime)
+### 04_model_tune — Snowflake ML Tuner
+- **Snowflake ML Tuner API** (Ray Tune on SPCS) — not sklearn
+- RandomSearch, 10 trials on `SNOWHEALTH_COMPUTE_POOL`
+- Best trial registered as `TUNED_V1`, set as default version
+- Self-contained `train_func` for remote Ray workers
 
-### 5. 05_deployment_monitoring.ipynb - Deployment & Monitoring
-- **Batch inference**: Warehouse-based predictions via Model Registry `mv.run()`
-- **Prediction table**: Results saved with residuals and error metrics
-- **Model Monitor**: SQL-based drift detection setup
-- **Drift alert**: Scheduled daily at 8 AM ET, triggers if RMSE > 6.0
-- **Performance monitoring queries**: SQL for ongoing model health checks
-- Deployment validation visualizations (actual vs predicted, residuals, error by store)
+### 05_inference — Batch, Real-Time & Explainability
+- **Part A**: Warehouse batch `mv.run()` on features table
+- **Part B**: SPCS batch `mv.run_batch()` — 1M rows, 3 replicas on compute pool
+- **Part C**: Champion/Challenger deployment
+  - Two SPCS services with `feature_sources_per_function` (Postgres online store)
+  - Traffic-split gateway: 90% champion (`BASELINE_V1`) / 10% challenger (`TUNED_V1`)
+  - Entity-ID-only REST payloads (sub-100ms production latency)
+  - Auto-Capture enabled on both services
+- **Part D**: SHAP explainability — `mv.run(function_name="explain")`, force plot, violin plot
+
+### 06_model_monitor — Drift Detection
+- Creates baseline snapshot from current predictions
+- Simulates drift: TEMPERATURE_F +15°F, INVENTORY_ON_HAND -40%, FLU_INDEX ×2
+- `CREATE MODEL MONITOR` with baseline comparison (regression task)
+- Queries drift metrics: **PSI**, **Difference of Means**, **Wasserstein Distance**
+- Consolidated drift summary with alert thresholds
+
+### 07_ml_pipeline — Pipeline Builder & Code Bundles
+- Lightweight companion to the interactive notebooks — demonstrates the **production MLOps** path
+- Explains **Pipeline Builder** (visual DAG designer), **Code Bundles** (packaged Python jobs), and **DCM** (infrastructure-as-code)
+- Deploys, executes, and validates the `SNOWHEALTH_PIPELINE` DCM project
+- Validates outputs: feature table (10K rows), model version in registry, deploy log with RMSE
+
+### pipeline/ — Code Bundles & Pipeline Builder
+- **DCM project** with 3 code bundles (`ml + compute_pool`) and a 4-task DAG
+- Weekly cron schedule → feature engineering → model training → deployment (quality gate + promote)
+- Each code bundle is a self-contained Python script running on `SNOWHEALTH_COMPUTE_POOL`
+- Deploy: `snow dcm deploy --from pipeline --target DEV`
 
 ## Synthetic Data
 
-10,000 transaction records with realistic retail pharmacy patterns:
+10,000 transactions with realistic retail pharmacy patterns:
 - **8 stores** across 4 regions (Northeast, Southeast, Midwest, West)
-- **15 SKUs** across 8 categories (Prescription, OTC Pain/Cold/Allergy/Digestive, Pharmacy Services, Health & Wellness, Beauty)
+- **15 SKUs** across 7 categories (Prescription, OTC Pain/Cold/Allergy/Digestive, Pharmacy Services, Health & Wellness)
 - **4 fulfillment channels**: In-Store, Online-Delivery, Drive-Thru, Curbside-Pickup
-- **Seasonal patterns**: Cold/flu products peak in winter, allergy in spring, sunscreen in summer
-- **Environmental features**: Temperature, flu index correlated with region and season
-- **Date range**: January 2023 - December 2024
+- Seasonal patterns, temperature/flu correlation, promotions
+- Date range: January 2023 – December 2024
 
-## Model Performance
+## Snowflake ML Features Demonstrated
 
-| Model | MAE | RMSE | MAPE | R2 |
-|-------|-----|------|------|-----|
-| XGBoost Baseline | 3.44 | 4.55 | 11.30% | 0.931 |
-| LightGBM Baseline | 3.41 | 4.45 | 11.26% | 0.934 |
-| **XGBoost Tuned (HPO)** | **3.38** | **4.43** | **11.14%** | **0.935** |
-
-Hyperparameter tuning improved RMSE by ~2.6% over the XGBoost baseline.
-
-## Snowflake ML Features Used
-
-| Feature | Usage |
-|---------|-------|
-| **Feature Store** | Managed DT feature view, 10-min refresh, online serving enabled |
-| **Experiment Tracking** | 3 runs: xgboost_baseline, lightgbm_baseline, xgboost_tuned_hpo |
-| **Model Registry** | 2 versions (baseline_v1, tuned_v1) with warehouse inference |
-| **Model Monitor** | Drift detection on prediction source table |
-| **Alerts** | Scheduled RMSE threshold monitoring with email notification |
-| **Batch Inference** | Warehouse-based `mv.run()` for scoring |
-
-## Key Configuration (source/config.py)
-
-All database names, schema names, model names, feature lists, and hyperparameter spaces are centralized in `config.py` for easy modification and reuse across notebooks.
+| Feature | Where Used |
+|---------|------------|
+| **Feature Store** | Managed DT feature view, 10-min refresh, Postgres-backed online serving |
+| **Experiment Tracking** | 3 runs: xgboost_baseline, lightgbm_baseline, xgboost_tuned_sf_tuner |
+| **Model Registry** | 2 versions (BASELINE_V1, TUNED_V1), default version management |
+| **ML Tuner** | Ray Tune on SPCS compute pool, RandomSearch, 10 trials |
+| **Batch Inference** | `mv.run()` (warehouse) and `mv.run_batch()` (SPCS, 1M rows) |
+| **SPCS Inference Services** | Champion/challenger with `feature_sources_per_function` |
+| **Gateway** | Traffic-split (90/10), stable endpoint for A/B comparison |
+| **SHAP Explainability** | `explain` function, force plot, violin plot |
+| **Model Monitor** | Version monitor with PSI, Diff of Means, Wasserstein drift metrics |
+| **ML Lineage** | Source data → Feature View → Model tracking |
+| **Pipeline Builder** | DCM project with code bundles, task DAG, weekly schedule |
+| **Compute Pool** | `SNOWHEALTH_COMPUTE_POOL` for Tuner, batch jobs, inference services, and pipeline |
 
 ## Running the Solution
 
-Execute the notebooks in order (01 through 06). Each notebook imports shared code from `source/` and builds on the outputs of previous notebooks. The database objects are created by SQL commands in the infrastructure setup phase.
+Execute notebooks in order (`01` → `07`). Each notebook imports shared code from `source/` and builds on the outputs of previous notebooks. The pipeline (`07`) requires a prior `snow dcm deploy` from the CLI.

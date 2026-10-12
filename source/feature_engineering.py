@@ -2,8 +2,9 @@
 SnowHealth Demand Forecasting - Feature Engineering Module
 Transforms raw transaction data into ML-ready features.
 """
-import pandas as pd
+
 import numpy as np
+import pandas as pd
 
 
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -35,13 +36,11 @@ def add_lag_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values(["SKU_ID", "STORE_ID", "TRANSACTION_DATE"])
     group_cols = ["SKU_ID", "STORE_ID"]
 
-    df["ROLLING_7D_AVG_UNITS"] = (
-        df.groupby(group_cols)["UNITS_SOLD"]
-        .transform(lambda x: x.rolling(window=7, min_periods=1).mean())
+    df["ROLLING_7D_AVG_UNITS"] = df.groupby(group_cols)["UNITS_SOLD"].transform(
+        lambda x: x.rolling(window=7, min_periods=1).mean()
     )
-    df["ROLLING_30D_AVG_UNITS"] = (
-        df.groupby(group_cols)["UNITS_SOLD"]
-        .transform(lambda x: x.rolling(window=30, min_periods=1).mean())
+    df["ROLLING_30D_AVG_UNITS"] = df.groupby(group_cols)["UNITS_SOLD"].transform(
+        lambda x: x.rolling(window=30, min_periods=1).mean()
     )
     df["LAG_7D_UNITS"] = df.groupby(group_cols)["UNITS_SOLD"].shift(7)
     df["LAG_14D_UNITS"] = df.groupby(group_cols)["UNITS_SOLD"].shift(14)
@@ -58,12 +57,22 @@ def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["PRICE_TIMES_PROMO"] = df["UNIT_PRICE"] * df["PROMOTION_DISCOUNT_PCT"]
     df["INVENTORY_TURNOVER_RATIO"] = np.where(
-        df["INVENTORY_ON_HAND"] > 0,
-        df["UNITS_SOLD"] / df["INVENTORY_ON_HAND"],
-        0
+        df["INVENTORY_ON_HAND"] > 0, df["UNITS_SOLD"] / df["INVENTORY_ON_HAND"], 0
     )
-    seasonal_map = {1: 0.8, 2: 0.9, 3: 1.0, 4: 1.1, 5: 1.2, 6: 1.1,
-                    7: 1.0, 8: 0.9, 9: 1.1, 10: 1.2, 11: 1.3, 12: 1.1}
+    seasonal_map = {
+        1: 0.8,
+        2: 0.9,
+        3: 1.0,
+        4: 1.1,
+        5: 1.2,
+        6: 1.1,
+        7: 1.0,
+        8: 0.9,
+        9: 1.1,
+        10: 1.2,
+        11: 1.3,
+        12: 1.1,
+    }
     df["SEASONAL_DEMAND_INDEX"] = df["MONTH"].map(seasonal_map)
     return df
 
@@ -85,13 +94,27 @@ def engineer_features(df: pd.DataFrame, categorical_cols: list) -> pd.DataFrame:
     return df
 
 
-def get_feature_columns(df: pd.DataFrame, target: str, exclude_cols: list = None) -> list:
+def get_feature_columns(
+    df: pd.DataFrame, target: str, exclude_cols: list | None = None
+) -> list:
     """Return the list of feature column names (all numeric, excluding target and IDs)."""
     if exclude_cols is None:
         exclude_cols = [
-            "TRANSACTION_ID", "TRANSACTION_DATE", "STORE_ID", "SKU_ID",
-            "PRODUCT_NAME", "CREATED_AT", "REVENUE", "IS_WEEKEND",
-            "IS_HOLIDAY", "PROMOTION_FLAG"
+            "TRANSACTION_ID",
+            "TRANSACTION_DATE",
+            "STORE_ID",
+            "SKU_ID",
+            "PRODUCT_NAME",
+            "CREATED_AT",
+            "REVENUE",
+            "IS_WEEKEND",
+            "IS_HOLIDAY",
+            "PROMOTION_FLAG",
         ]
     exclude_cols.append(target)
-    return [c for c in df.columns if c not in exclude_cols and df[c].dtype in ["int64", "float64", "int32", "float32", "uint8"]]
+    return [
+        c
+        for c in df.columns
+        if c not in exclude_cols
+        and df[c].dtype in ["int64", "float64", "int32", "float32", "uint8"]
+    ]

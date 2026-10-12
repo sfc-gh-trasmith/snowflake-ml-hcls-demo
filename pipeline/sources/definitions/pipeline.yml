@@ -1,0 +1,108 @@
+##############################################################################
+# SnowHealth Demand Forecasting — ML Pipeline
+#
+# DAG:
+#   SNOWHEALTH_PIPELINE_ROOT (weekly Monday 6 AM ET)
+#     └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING
+#           └─> SNOWHEALTH_TASK_MODEL_TRAINING
+#                 └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+##############################################################################
+definitions:
+
+  # ── Code Bundles ─────────────────────────────────────────────────────────
+  - resource: code_bundle
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_CB_FEATURE_ENGINEERING
+    from:
+      type: asset
+      asset: feature_engineering_bundle
+    comment: Engineers 30+ features from raw pharmacy transactions
+
+  - resource: code_bundle
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_CB_MODEL_TRAINING
+    from:
+      type: asset
+      asset: model_training_bundle
+    comment: Trains XGBoost regressor and registers to Model Registry
+
+  - resource: code_bundle
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_CB_MODEL_DEPLOYMENT
+    from:
+      type: asset
+      asset: model_deployment_bundle
+    comment: Quality gate + promote default version + smoke test
+
+  # ── Tasks (DAG) ─────────────────────────────────────────────────────────
+
+  # Root task — weekly schedule trigger
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT
+    warehouse: COMPUTE_WH
+    schedule:
+      type: cron
+      value: 0 6 * * 1 America/New_York
+    definition:
+      type: sql
+      value: SELECT 'SnowHealth ML Pipeline triggered' AS status
+
+  # Step 1: Feature Engineering
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_ENGINEERING
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_CB_FEATURE_ENGINEERING
+      entrypoint: feature_engineering.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          language: python
+          compute_options:
+            compute_pool: SNOWHEALTH_COMPUTE_POOL
+            query_warehouse: COMPUTE_WH
+          properties:
+            result_stage: '@SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS'
+
+  # Step 2: Model Training
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_TRAINING
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_ENGINEERING
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_CB_MODEL_TRAINING
+      entrypoint: model_training.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          language: python
+          compute_options:
+            compute_pool: SNOWHEALTH_COMPUTE_POOL
+            query_warehouse: COMPUTE_WH
+          properties:
+            result_stage: '@SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS'
+
+  # Step 3: Model Deployment (quality gate → promote → smoke test)
+  - resource: task
+    name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+    warehouse: COMPUTE_WH
+    predecessors:
+      - SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_TRAINING
+    definition:
+      type: code_bundle
+      name: SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_CB_MODEL_DEPLOYMENT
+      entrypoint: model_deployment.py
+      specification:
+        bundle:
+          type: ml
+          compute_type: compute_pool
+          language: python
+          compute_options:
+            compute_pool: SNOWHEALTH_COMPUTE_POOL
+            query_warehouse: COMPUTE_WH
+          properties:
+            result_stage: '@SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS'

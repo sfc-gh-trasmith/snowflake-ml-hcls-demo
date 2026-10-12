@@ -1,0 +1,17 @@
+manifest_version: 2
+type: DCM_PROJECT
+default_target: "DEV"
+
+targets:
+  DEV:
+    account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
+    project_name: "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE"
+    project_owner: ACCOUNTADMIN
+
+assets:
+  feature_engineering_bundle:
+    path: 'code_bundles/feature_engineering/**/*'
+  model_training_bundle:
+    path: 'code_bundles/model_training/**/*'
+  model_deployment_bundle:
+    path: 'code_bundles/model_deployment/**/*'
