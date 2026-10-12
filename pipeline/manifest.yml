@@ -1,12 +1,40 @@
 manifest_version: 2
 type: DCM_PROJECT
-default_target: "DEV"
+default_target: DEV
 
 targets:
   DEV:
     account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
     project_name: "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE"
     project_owner: ACCOUNTADMIN
+    templating_config: DEV
+
+  PROD:
+    account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
+    project_name: "PRD_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE"
+    project_owner: ML_OPS_ROLE
+    templating_config: PROD
+
+templating:
+  defaults:
+    database: "SNOWHEALTH_ML_DB"
+    schema: "SNOWHEALTH_MODELS"
+    warehouse: "COMPUTE_WH"
+    compute_pool: "SNOWHEALTH_COMPUTE_POOL"
+    cron_schedule: "0 6 * * 1 America/New_York"
+    model_version: "latest"
+
+  configurations:
+    DEV:
+      database: "SNOWHEALTH_ML_DB"
+      schema: "SNOWHEALTH_MODELS"
+
+    PROD:
+      database: "PRD_SNOWHEALTH_ML_DB"
+      schema: "SNOWHEALTH_MODELS"
+      warehouse: "PROD_ML_WH"
+      compute_pool: "PROD_COMPUTE_POOL"
+      cron_schedule: "0 4 * * 1 America/New_York"
 
 assets:
   feature_engineering_bundle:

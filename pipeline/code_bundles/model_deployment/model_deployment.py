@@ -1,7 +1,17 @@
 """
 SnowHealth Pipeline — Step 3: Model Deployment
-Evaluates the latest model version, enforces quality gate, promotes to default.
+Evaluates a model version, enforces quality gate, promotes to default.
+
+Supports two modes via MODEL_VERSION env var (set by DCM templating):
+  - "latest" (default): auto-selects the newest version from training
+  - specific version name: deploys that exact version (e.g. for prod pinning)
+
+Usage:
+  DEV (auto):  snow dcm deploy --from pipeline --target DEV
+  PROD (pin):  snow dcm deploy --from pipeline --target PROD --variable model_version=PIPELINE_20261012_v3
 """
+
+import os
 
 import numpy as np
 import pandas as pd
@@ -13,14 +23,23 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 print("Step 3: Model Deployment — Started")
 
-# Load model registry and get the latest version
+# Determine which version to deploy
+model_version = os.environ.get("MODEL_VERSION", "latest")
+print(f"MODEL_VERSION={model_version}")
+
+# Load model registry
 registry = Registry(
     session=session, database_name="SNOWHEALTH_ML_DB", schema_name="SNOWHEALTH_MODELS"
 )
 model_ref = registry.get_model("SNOWHEALTH_PIPELINE_MODEL")
-versions = model_ref.versions()
-latest = versions[-1]
-print(f"Latest version: {latest.version_name}")
+
+if model_version == "latest":
+    versions = model_ref.versions()
+    target = versions[-1]
+    print(f"Auto-selected latest version: {target.version_name}")
+else:
+    target = model_ref.version(model_version)
+    print(f"Using pinned version: {target.version_name}")
 
 # Load test data for evaluation
 df = session.table(
@@ -46,7 +65,7 @@ y = df["UNITS_SOLD"].astype(float)
 _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Batch inference on holdout set
-predictions = latest.run(X_test)
+predictions = target.run(X_test)
 pred_vals = predictions.iloc[:, 0].values
 
 # Compute metrics
@@ -64,11 +83,11 @@ if rmse > RMSE_THRESHOLD:
 print(f"Quality gate PASSED: RMSE {rmse:.3f} < {RMSE_THRESHOLD}")
 
 # Promote to default version
-model_ref.default = latest.version_name
-print(f"Default version set to: {latest.version_name}")
+model_ref.default = target.version_name
+print(f"Default version set to: {target.version_name}")
 
 # Smoke test (5 predictions)
-smoke = latest.run(X_test.head(5))
+smoke = target.run(X_test.head(5))
 print(f"Smoke test: {len(smoke)} predictions returned")
 
 # Log deployment result
@@ -76,7 +95,7 @@ deploy_log = pd.DataFrame(
     [
         {
             "MODEL_NAME": "SNOWHEALTH_PIPELINE_MODEL",
-            "VERSION": latest.version_name,
+            "VERSION": target.version_name,
             "DEPLOYED_AT": pd.Timestamp.now(),
             "RMSE": rmse,
             "STATUS": "DEPLOYED",
@@ -86,4 +105,4 @@ deploy_log = pd.DataFrame(
 session.create_dataframe(deploy_log).write.mode("append").save_as_table(
     "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_DEPLOY_LOG"
 )
-print(f"Step 3 COMPLETE: {latest.version_name} deployed as default")
+print(f"Step 3 COMPLETE: {target.version_name} deployed as default")
