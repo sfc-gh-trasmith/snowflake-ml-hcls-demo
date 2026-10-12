@@ -3,8 +3,17 @@ SnowHealth Demand Forecasting - Feature Engineering Module
 Transforms raw transaction data into ML-ready features.
 """
 
+import re
+
 import numpy as np
 import pandas as pd
+
+# Short one-hot prefixes keep dummy column names within the 30-char Postgres limit.
+DUMMY_PREFIXES = {
+    "REGION": "REG",
+    "PRODUCT_CATEGORY": "CAT",
+    "FULFILLMENT_CHANNEL": "CHAN",
+}
 
 
 def add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -80,7 +89,19 @@ def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
 def encode_categoricals(df: pd.DataFrame, categorical_cols: list) -> pd.DataFrame:
     """One-hot encode categorical features, returning numeric DataFrame."""
     df = df.copy()
-    df = pd.get_dummies(df, columns=categorical_cols, drop_first=True, dtype=int)
+    df = pd.get_dummies(
+        df,
+        columns=categorical_cols,
+        prefix=[DUMMY_PREFIXES.get(c, c) for c in categorical_cols],
+        drop_first=True,
+        dtype=int,
+    )
+    # Postgres online store requires column names <= 30 chars; also avoid
+    # spaces/&/- so Snowflake columns stay unquoted, e.g. CAT_OTC_COLD_FLU.
+    df.columns = [
+        re.sub(r"_+", "_", re.sub(r"[^A-Z0-9_]", "_", str(c).upper())).strip("_")[:30]
+        for c in df.columns
+    ]
     return df
 
 

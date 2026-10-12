@@ -25,7 +25,7 @@ SNOWHEALTH_ML_DB (Database)
 │   ├── SNOWHEALTH_DEMAND_FEATURES       Engineered feature table (change tracking)
 │   ├── SNOWHEALTH_SKU_STORE             Entity (join keys: SKU_ID, STORE_ID)
 │   └── SNOWHEALTH_DEMAND_FV/V01         Managed Feature View (DT, 10-min refresh)
-│                                        Postgres-backed online serving (1-min lag)
+│                                        Hybrid-table online serving (1-min lag)
 │
 ├── SNOWHEALTH_MODELS (Schema)           Model Registry, Inference & Monitoring
 │   ├── SNOWHEALTH_DEMAND_FORECAST       Model (BASELINE_V1, TUNED_V1 [default])
@@ -50,7 +50,7 @@ SNOWHEALTH_ML_DB (Database)
 │
 ├── notebooks/
 │   ├── 01_setup.ipynb             Infrastructure setup & data exploration
-│   ├── 02_feature_engineer.ipynb  Feature engineering & Postgres-backed online Feature Store
+│   ├── 02_feature_engineer.ipynb  Feature engineering & hybrid-table online Feature Store
 │   ├── 03_model_train.ipynb       XGBoost + LightGBM with Experiment Tracking
 │   ├── 04_model_tune.ipynb        Snowflake ML Tuner (Ray on SPCS compute pool)
 │   ├── 05_inference.ipynb         Batch + champion/challenger + SHAP explainability
@@ -76,7 +76,7 @@ SNOWHEALTH_ML_DB (Database)
 ### 02_feature_engineer — Feature Store
 - Calendar, cyclical (sin/cos), lag (7/14/30d), rolling average, and interaction features
 - Registers **Entity** (`SKU_ID`, `STORE_ID`) and **managed Feature View** (Dynamic Table, 10-min refresh)
-- Enables **Postgres-backed online serving** (`OnlineStoreType.POSTGRES`, 1-min target lag)
+- Enables **hybrid-table online serving** (`OnlineStoreType.HYBRID_TABLE`, 1-min target lag)
 - Verifies Feature Store lineage
 
 ### 03_model_train — Experiment Tracking & Model Registry
@@ -95,7 +95,7 @@ SNOWHEALTH_ML_DB (Database)
 - **Part A**: Warehouse batch `mv.run()` on features table
 - **Part B**: SPCS batch `mv.run_batch()` — 1M rows, 3 replicas on compute pool
 - **Part C**: Champion/Challenger deployment
-  - Two SPCS services with `feature_sources_per_function` (Postgres online store)
+  - Two SPCS services; features looked up from the hybrid-table online store
   - Traffic-split gateway: 90% champion (`BASELINE_V1`) / 10% challenger (`TUNED_V1`)
   - Entity-ID-only REST payloads (sub-100ms production latency)
   - Auto-Capture enabled on both services
@@ -133,7 +133,7 @@ SNOWHEALTH_ML_DB (Database)
 
 | Feature | Where Used |
 |---------|------------|
-| **Feature Store** | Managed DT feature view, 10-min refresh, Postgres-backed online serving |
+| **Feature Store** | Managed DT feature view, 10-min refresh, hybrid-table online serving |
 | **Experiment Tracking** | 3 runs: xgboost_baseline, lightgbm_baseline, xgboost_tuned_sf_tuner |
 | **Model Registry** | 2 versions (BASELINE_V1, TUNED_V1), default version management |
 | **ML Tuner** | Ray Tune on SPCS compute pool, RandomSearch, 10 trials |
