@@ -65,7 +65,7 @@ y = df["UNITS_SOLD"].astype(float)
 _, X_test, _, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
 # Batch inference on holdout set
-predictions = target.run(X_test)
+predictions = target.run(X_test, function_name="predict")
 pred_vals = predictions.iloc[:, 0].values
 
 # Compute metrics
@@ -87,7 +87,7 @@ model_ref.default = target.version_name
 print(f"Default version set to: {target.version_name}")
 
 # Smoke test (5 predictions)
-smoke = target.run(X_test.head(5))
+smoke = target.run(X_test.head(5), function_name="predict")
 print(f"Smoke test: {len(smoke)} predictions returned")
 
 # Log deployment result
