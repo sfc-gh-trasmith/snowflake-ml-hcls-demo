@@ -1,7 +1,13 @@
 """
 SnowHealth Pipeline — Step 1: Feature Engineering
 Loads raw transactions, engineers features, saves to pipeline feature table.
+
+Environment variables (set by DCM templating via env_vars):
+  - DCM_DATABASE: target database (e.g. DEV_SNOWHEALTH_ML_DB, PRD_SNOWHEALTH_ML_DB)
+  - DCM_SCHEMA: target schema (e.g. SNOWHEALTH_MODELS)
 """
+
+import os
 
 import numpy as np
 import pandas as pd
@@ -10,10 +16,12 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 print("Step 1: Feature Engineering — Started")
 
+DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
+print(f"Target: {DB}.{SCHEMA}")
+
 # Load raw transactions
-df = session.table(
-    "SNOWHEALTH_ML_DB.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS"
-).to_pandas()
+df = session.table(f"{DB}.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS").to_pandas()
 print(f"Loaded {len(df):,} raw transactions")
 
 # Calendar features
@@ -112,5 +120,5 @@ for c in df_save.select_dtypes(include=["int8", "int16", "int32"]).columns:
 
 session.create_dataframe(df_save.reset_index(drop=True)).write.mode(
     "overwrite"
-).save_as_table("SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_FEATURES")
+).save_as_table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES")
 print(f"Step 1 COMPLETE: Saved {len(df_save):,} rows with {len(keep)} features")

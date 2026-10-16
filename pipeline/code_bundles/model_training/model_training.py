@@ -1,8 +1,13 @@
 """
 SnowHealth Pipeline — Step 2: Model Training
 Trains XGBoost on pipeline features, registers to Snowflake Model Registry.
+
+Environment variables (set by DCM templating via env_vars):
+  - DCM_DATABASE: target database
+  - DCM_SCHEMA: target schema
 """
 
+import os
 import time
 
 import numpy as np
@@ -15,10 +20,12 @@ from xgboost import XGBRegressor
 session = get_active_session()
 print("Step 2: Model Training — Started")
 
+DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
+print(f"Target: {DB}.{SCHEMA}")
+
 # Load pipeline features
-df = session.table(
-    "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_FEATURES"
-).to_pandas()
+df = session.table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES").to_pandas()
 print(f"Loaded {len(df):,} feature rows")
 
 # Identify numeric feature columns (exclude metadata and target)
@@ -68,9 +75,7 @@ r2 = r2_score(y_test, preds)
 print(f"Holdout metrics: MAE={mae:.3f}, RMSE={rmse:.3f}, R2={r2:.3f}")
 
 # Register to Model Registry
-registry = Registry(
-    session=session, database_name="SNOWHEALTH_ML_DB", schema_name="SNOWHEALTH_MODELS"
-)
+registry = Registry(session=session, database_name=DB, schema_name=SCHEMA)
 
 # Generate a version name based on timestamp
 version_name = f"PIPELINE_{time.strftime('%Y%m%d_%H%M')}"

@@ -5,7 +5,7 @@ default_target: DEV
 targets:
   DEV:
     account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
-    project_name: "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE"
+    project_name: "DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE"
     project_owner: ACCOUNTADMIN
     templating_config: DEV
 
@@ -17,7 +17,7 @@ targets:
 
 templating:
   defaults:
-    database: "SNOWHEALTH_ML_DB"
+    database: "DEV_SNOWHEALTH_ML_DB"
     schema: "SNOWHEALTH_MODELS"
     warehouse: "COMPUTE_WH"
     compute_pool: "SNOWHEALTH_COMPUTE_POOL"
@@ -26,7 +26,7 @@ templating:
 
   configurations:
     DEV:
-      database: "SNOWHEALTH_ML_DB"
+      database: "DEV_SNOWHEALTH_ML_DB"
       schema: "SNOWHEALTH_MODELS"
 
     PROD:

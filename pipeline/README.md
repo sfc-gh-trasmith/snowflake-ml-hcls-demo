@@ -4,7 +4,7 @@
 
 A production-ready, automated ML pipeline for retail pharmacy demand forecasting built entirely on Snowflake-native infrastructure. This pipeline demonstrates how to operationalize an end-to-end MLOps workflow using **DCM Projects** (Database Change Management), **Pipeline Builder**, and **Code Bundles** — no external orchestrators, no third-party tools.
 
-The pipeline runs on a weekly cron schedule: it engineers features from raw pharmacy transactions, trains an XGBoost model on GPU-enabled compute pools, evaluates against a quality gate, and promotes the winning version to production — all as a single declarative DAG managed as code.
+The pipeline runs on a weekly cron schedule: it engineers features from raw pharmacy transactions, trains an XGBoost model on compute pools, evaluates against a quality gate, and promotes the winning version to production — all as a single declarative DAG managed as code.
 
 ## Key Concepts
 
@@ -36,6 +36,7 @@ SNOWHEALTH_PIPELINE_ROOT (weekly cron: Monday 6 AM ET)
   └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING
         └─> SNOWHEALTH_TASK_MODEL_TRAINING
               └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+SNOWHEALTH_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
 ```
 
 | Step | Code Bundle | What It Does |
@@ -43,6 +44,7 @@ SNOWHEALTH_PIPELINE_ROOT (weekly cron: Monday 6 AM ET)
 | **Feature Engineering** | `feature_engineering.py` | Loads raw pharmacy transactions, engineers 30+ features (temporal, lag, rolling, interaction), writes to `SNOWHEALTH_PIPELINE_FEATURES` |
 | **Model Training** | `model_training.py` | Trains XGBoost regressor, registers versioned model in Snowflake Model Registry as `SNOWHEALTH_PIPELINE_MODEL` with timestamped version |
 | **Model Deployment** | `model_deployment.py` | Evaluates on holdout set, enforces RMSE quality gate (< 15.0), promotes to default version, runs smoke test, logs to `SNOWHEALTH_PIPELINE_DEPLOY_LOG` |
+| **Finalizer** | SQL task | Logs pipeline completion status to `SNOWHEALTH_PIPELINE_DEPLOY_LOG` — runs regardless of whether the pipeline succeeded or failed |
 
 ## Multi-Environment Templating
 
@@ -50,19 +52,36 @@ All environment-specific values are parameterized via Jinja2 templating in `mani
 
 | Variable | Default | DEV | PROD |
 |----------|---------|-----|------|
-| `database` | SNOWHEALTH_ML_DB | SNOWHEALTH_ML_DB | PRD_SNOWHEALTH_ML_DB |
+| `database` | DEV_SNOWHEALTH_ML_DB | DEV_SNOWHEALTH_ML_DB | PRD_SNOWHEALTH_ML_DB |
 | `schema` | SNOWHEALTH_MODELS | SNOWHEALTH_MODELS | SNOWHEALTH_MODELS |
 | `warehouse` | COMPUTE_WH | COMPUTE_WH | PROD_ML_WH |
 | `compute_pool` | SNOWHEALTH_COMPUTE_POOL | SNOWHEALTH_COMPUTE_POOL | PROD_COMPUTE_POOL |
 | `cron_schedule` | Monday 6 AM ET | Monday 6 AM ET | Monday 4 AM ET |
 | `model_version` | latest | latest | (override at deploy time) |
 
-### How Templating Works
+### How Variables Reach Python Scripts
 
-1. Variables are declared in `manifest.yml` under `templating.defaults` and `templating.configurations`
-2. Each target maps to a configuration via `templating_config`
-3. At deploy time, DCM's RENDER step substitutes `{{ variable }}` → resolved value
-4. The `--variable` CLI flag overrides any value at deploy time
+Template variables are passed to code bundle scripts via `env_vars` on each task definition:
+
+```
+manifest.yml          →  pipeline.yml            →  Python script
+(templating variable)     (env_vars on task)         (os.environ)
+```
+
+Each code bundle task includes:
+```yaml
+env_vars:
+  - DCM_DATABASE: '{{ database }}'
+  - DCM_SCHEMA: '{{ schema }}'
+```
+
+At deploy time, `{{ database }}` resolves to `DEV_SNOWHEALTH_ML_DB` (or `PRD_SNOWHEALTH_ML_DB` for PROD). The Python scripts read these at runtime:
+```python
+DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
+```
+
+This means **zero hardcoded database references** in Python — the same code runs in any environment.
 
 ## Model Version Control
 
@@ -101,17 +120,17 @@ pipeline/
 ├── README.md                                 # This file
 ├── sources/
 │   └── definitions/
-│       └── pipeline.yml                      # Templatized pipeline DAG definition
+│       └── pipeline.yml                      # Templatized pipeline DAG + finalizer
 ├── code_bundles/
 │   ├── feature_engineering/
 │   │   ├── code_bundle.yml                   # ml + compute_pool spec
-│   │   └── feature_engineering.py            # 30+ features from raw transactions
+│   │   └── feature_engineering.py            # 30+ features (reads DCM_DATABASE env var)
 │   ├── model_training/
 │   │   ├── code_bundle.yml                   # ml + compute_pool spec
-│   │   └── model_training.py                 # XGBoost → Model Registry
+│   │   └── model_training.py                 # XGBoost → Model Registry (reads DCM_DATABASE)
 │   └── model_deployment/
 │       ├── code_bundle.yml                   # ml + compute_pool spec
-│       └── model_deployment.py               # Quality gate → promote → smoke test
+│       └── model_deployment.py               # Quality gate → promote (reads DCM_DATABASE + MODEL_VERSION)
 └── out/                                      # Generated by plan/deploy (gitignored)
 ```
 
@@ -121,18 +140,27 @@ pipeline/
 
 - Snowflake account with `ACCOUNTADMIN` or equivalent role
 - Compute pool created: `SNOWHEALTH_COMPUTE_POOL` (CPU_X64_S, 1-5 nodes)
-- Stage created: `SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS`
-- DCM project object created:
-  ```sql
-  CREATE DCM PROJECT IF NOT EXISTS
-    SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
-  ```
 
-### Deploy
+### Option A: Deploy from a Snowflake Workspace (no CLI needed)
+
+The `07_ml_pipeline.ipynb` notebook handles everything — create, deploy, execute, validate, suspend — using SQL:
+
+```sql
+-- Create the DCM project and results stage
+CREATE DCM PROJECT IF NOT EXISTS DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
+CREATE STAGE IF NOT EXISTS DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS;
+
+-- Deploy directly from the workspace stage
+EXECUTE DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE
+    DEPLOY
+    USING CONFIGURATION DEV
+    FROM 'snow://workspace/USER$.PUBLIC."snowflake-ml-hcls-demo"/versions/live/pipeline';
+```
+
+### Option B: Deploy from CLI
 
 ```bash
-# Update account_identifier in manifest.yml first
-# Then deploy to DEV:
+# Update account_identifier in manifest.yml first, then:
 snow dcm deploy --from pipeline --target DEV
 
 # Preview changes without applying:
@@ -142,31 +170,41 @@ snow dcm plan --from pipeline --target DEV
 ### Execute
 
 ```sql
--- Resume the task DAG
-ALTER TASK SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT RESUME;
+-- Resume the task DAG (leaf first, root last)
+ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_DEPLOYMENT RESUME;
+ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_TRAINING RESUME;
+ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_ENGINEERING RESUME;
+ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT RESUME;
 
 -- Trigger an immediate run
-EXECUTE TASK SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT;
+EXECUTE TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT;
 
 -- Monitor execution
-SELECT *
-FROM TABLE(INFORMATION_SCHEMA.TASK_HISTORY(
+SELECT NAME, STATE, SCHEDULED_TIME, COMPLETED_TIME
+FROM TABLE(DEV_SNOWHEALTH_ML_DB.INFORMATION_SCHEMA.TASK_HISTORY(
     SCHEDULED_TIME_RANGE_START => DATEADD('hour', -1, CURRENT_TIMESTAMP()),
     RESULT_LIMIT => 10
 ))
+WHERE NAME LIKE 'SNOWHEALTH%'
 ORDER BY SCHEDULED_TIME DESC;
 ```
 
 ### Suspend
 
 ```sql
-ALTER TASK SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT SUSPEND;
+ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT SUSPEND;
 ```
 
 ### Teardown
 
 ```bash
 snow dcm teardown --from pipeline --target DEV
+```
+
+Or via SQL:
+```sql
+EXECUTE DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE PURGE;
+DROP DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
 ```
 
 ## Git Workflow
@@ -194,3 +232,4 @@ The deployment step enforces a quality gate before any model reaches production:
 3. If passed → set as default version + smoke test
 4. If failed → `ValueError` raised, task fails, previous default stays live
 5. All results logged to `SNOWHEALTH_PIPELINE_DEPLOY_LOG`
+6. Finalizer task logs overall pipeline status regardless of outcome

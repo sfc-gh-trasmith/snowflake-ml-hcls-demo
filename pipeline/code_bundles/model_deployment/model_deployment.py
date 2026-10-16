@@ -2,9 +2,10 @@
 SnowHealth Pipeline — Step 3: Model Deployment
 Evaluates a model version, enforces quality gate, promotes to default.
 
-Supports two modes via MODEL_VERSION env var (set by DCM templating):
-  - "latest" (default): auto-selects the newest version from training
-  - specific version name: deploys that exact version (e.g. for prod pinning)
+Environment variables (set by DCM templating via env_vars):
+  - DCM_DATABASE: target database
+  - DCM_SCHEMA: target schema
+  - MODEL_VERSION: "latest" (auto) or specific version name (pinned)
 
 Usage:
   DEV (auto):  snow dcm deploy --from pipeline --target DEV
@@ -23,14 +24,13 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 print("Step 3: Model Deployment — Started")
 
-# Determine which version to deploy
+DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
 model_version = os.environ.get("MODEL_VERSION", "latest")
-print(f"MODEL_VERSION={model_version}")
+print(f"Target: {DB}.{SCHEMA} | MODEL_VERSION={model_version}")
 
 # Load model registry
-registry = Registry(
-    session=session, database_name="SNOWHEALTH_ML_DB", schema_name="SNOWHEALTH_MODELS"
-)
+registry = Registry(session=session, database_name=DB, schema_name=SCHEMA)
 model_ref = registry.get_model("SNOWHEALTH_PIPELINE_MODEL")
 
 if model_version == "latest":
@@ -42,9 +42,7 @@ else:
     print(f"Using pinned version: {target.version_name}")
 
 # Load test data for evaluation
-df = session.table(
-    "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_FEATURES"
-).to_pandas()
+df = session.table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES").to_pandas()
 exclude = {
     "TRANSACTION_ID",
     "TRANSACTION_DATE",
@@ -103,6 +101,6 @@ deploy_log = pd.DataFrame(
     ]
 )
 session.create_dataframe(deploy_log).write.mode("append").save_as_table(
-    "SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_DEPLOY_LOG"
+    f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_DEPLOY_LOG"
 )
 print(f"Step 3 COMPLETE: {target.version_name} deployed as default")

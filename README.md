@@ -17,7 +17,7 @@ End-to-end machine learning solution for retail pharmacy demand forecasting buil
 ## Architecture
 
 ```
-SNOWHEALTH_ML_DB (Database)
+DEV_SNOWHEALTH_ML_DB (Database)
 ├── SNOWHEALTH_RAW (Schema)              Raw transaction data
 │   └── SNOWHEALTH_DEMAND_TRANSACTIONS   10,000 synthetic transactions
 │
@@ -68,7 +68,7 @@ SNOWHEALTH_ML_DB (Database)
 ## Notebooks
 
 ### 01_setup — Infrastructure & Data
-- Creates `SNOWHEALTH_ML_DB` database with 3 schemas
+- Creates `DEV_SNOWHEALTH_ML_DB` database with 3 schemas
 - Creates `SNOWHEALTH_COMPUTE_POOL` (CPU_X64_S, 1-5 nodes, auto-resume)
 - Generates and loads 10K synthetic pharmacy transactions
 - Data exploration visualizations
