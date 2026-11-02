@@ -34,17 +34,55 @@ Code Bundles package Python scripts alongside their execution specification (com
 ```
 SNOWHEALTH_PIPELINE_ROOT (weekly cron: Monday 6 AM ET)
   └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING
-        └─> SNOWHEALTH_TASK_MODEL_TRAINING
-              └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+        └─> SNOWHEALTH_TASK_FEATURE_STORE_REFRESH
+              └─> SNOWHEALTH_TASK_MODEL_TRAINING
+                    └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
 SNOWHEALTH_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
 ```
 
 | Step | Code Bundle | What It Does |
 |------|-------------|-------------|
 | **Feature Engineering** | `feature_engineering.py` | Loads raw pharmacy transactions, engineers 30+ features (temporal, lag, rolling, interaction), writes to `SNOWHEALTH_PIPELINE_FEATURES` |
-| **Model Training** | `model_training.py` | Trains XGBoost regressor, registers versioned model in Snowflake Model Registry as `SNOWHEALTH_PIPELINE_MODEL` with timestamped version |
+| **Feature Store Refresh** | SQL task | Refreshes the declarative feature view `SNOWHEALTH_PIPELINE_FV/V1` (dynamic table in `SNOWHEALTH_PIPELINE_FS`) from the freshly engineered source table |
+| **Model Training** | `model_training.py` | Builds a point-in-time training set with `FeatureStore.generate_training_set()` (raw-transaction spine + FV), trains XGBoost regressor, registers versioned model in Snowflake Model Registry as `SNOWHEALTH_PIPELINE_MODEL` with timestamped version |
 | **Model Deployment** | `model_deployment.py` | Evaluates on holdout set, enforces RMSE quality gate (< 15.0), promotes to default version, runs smoke test, logs to `SNOWHEALTH_PIPELINE_DEPLOY_LOG` |
 | **Finalizer** | SQL task | Logs pipeline completion status to `SNOWHEALTH_PIPELINE_DEPLOY_LOG` — runs regardless of whether the pipeline succeeded or failed |
+
+## Declarative Feature Store
+
+The feature view the pipeline trains from is managed as code in [`../feature_store`](../feature_store), using the
+[declarative feature store](https://docs.snowflake.com/en/developer-guide/snowflake-ml/feature-store/feature-development-lifecycle)
+workflow (`snow feature plan` → `snow feature apply`). The DCM project owns the *compute* (tasks, code bundles); the
+feature store project owns the *feature definitions* (entity, batch source, feature view).
+
+```
+feature_store/
+├── manifest.yml                                  # targets (DEV/PROD) + templating
+└── sources/
+    ├── entities/SNOWHEALTH_TRANSACTION.yaml      # join key: TRANSACTION_ID
+    ├── datasources/SNOWHEALTH_PIPELINE_FEATURES_SRC.yaml  # query over the FE task's output (28 features)
+    └── feature_views/SNOWHEALTH_PIPELINE_FV.yaml # offline BatchFeatureView V1 (dynamic table)
+```
+
+How the two projects connect at runtime:
+
+```
+FEATURE_ENGINEERING ─writes→ SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_FEATURES   (batch source)
+FEATURE_STORE_REFRESH ─refreshes→ SNOWHEALTH_PIPELINE_FS.SNOWHEALTH_PIPELINE_FV$V1
+MODEL_TRAINING / MODEL_DEPLOYMENT ─generate_training_set(spine, [FV])→ features + label
+```
+
+- **Entity grain is `TRANSACTION_ID`** — (SKU, store, date) is not unique in this data, so a SKU-store
+  entity would produce an incorrect point-in-time join.
+- The batch source uses an explicit `query` to project columns: `columns:` alone does not filter, and the
+  label `UNITS_SOLD` would otherwise leak into the feature view.
+- Feature engineering writes with `mode("truncate")` so the source table keeps its identity under the
+  dynamic table.
+- Breaking changes to features: publish `SNOWHEALTH_PIPELINE_FV` **V2** and bump `fv_version` in
+  `manifest.yml` — V1 keeps serving until the pipeline is redeployed.
+
+Pipeline templating variables: `fs_schema` (`SNOWHEALTH_PIPELINE_FS`), `fv_name`, `fv_version` — passed to the
+training/deployment bundles as `FS_SCHEMA`, `FV_NAME`, `FV_VERSION`.
 
 ## Multi-Environment Templating
 
@@ -92,7 +130,7 @@ The pipeline supports two deployment modes via the `model_version` template vari
 Training produces a new timestamped version each run. The deployment step auto-selects the latest, evaluates it, and promotes if it passes the quality gate.
 
 ```bash
-snow dcm deploy --from pipeline --target DEV
+snow dcm deploy --from resources/pipeline --target DEV
 # model_version defaults to "latest"
 # Pipeline trains → evaluates → promotes newest version automatically
 ```
@@ -102,7 +140,7 @@ snow dcm deploy --from pipeline --target DEV
 A human reviews DEV results and pins a known-good version for production deployment. The quality gate still runs — a pinned version that fails RMSE is rejected.
 
 ```bash
-snow dcm deploy --from pipeline --target PROD \
+snow dcm deploy --from resources/pipeline --target PROD \
   --variable model_version=PIPELINE_20261012_v3
 ```
 
@@ -140,6 +178,17 @@ pipeline/
 
 - Snowflake account with `ACCOUNTADMIN` or equivalent role
 - Compute pool created: `SNOWHEALTH_COMPUTE_POOL` (CPU_X64_S, 1-5 nodes)
+- `snow feature` needs `snowflake-ml-python[feature_store]` in the **same interpreter** as the Snowflake CLI
+  (e.g. `uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python snowflake-cli "snowflake-ml-python[feature_store]"`)
+
+### Step 0: Deploy the Feature Store (before the pipeline)
+
+```bash
+cd resources/feature_store
+snow feature init --yaml --target DEV   # first time only: bootstraps SNOWHEALTH_PIPELINE_FS
+snow feature plan  --target DEV         # preview CREATE/UPDATE/RECREATE ops
+snow feature apply --target DEV         # add --destructive only for RECREATE_FV/DROP_*
+```
 
 ### Option A: Deploy from a Snowflake Workspace (no CLI needed)
 
@@ -154,17 +203,17 @@ CREATE STAGE IF NOT EXISTS DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIP
 EXECUTE DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE
     DEPLOY
     USING CONFIGURATION DEV
-    FROM 'snow://workspace/USER$.PUBLIC."snowflake-ml-hcls-demo"/versions/live/pipeline';
+    FROM 'snow://workspace/USER$.PUBLIC."snowflake-ml-hcls-demo"/versions/live/resources/pipeline';
 ```
 
 ### Option B: Deploy from CLI
 
 ```bash
 # Update account_identifier in manifest.yml first, then:
-snow dcm deploy --from pipeline --target DEV
+snow dcm deploy --from resources/pipeline --target DEV
 
 # Preview changes without applying:
-snow dcm plan --from pipeline --target DEV
+snow dcm plan --from resources/pipeline --target DEV
 ```
 
 ### Execute
@@ -173,6 +222,7 @@ snow dcm plan --from pipeline --target DEV
 -- Resume the task DAG (leaf first, root last)
 ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_DEPLOYMENT RESUME;
 ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_TRAINING RESUME;
+ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_STORE_REFRESH RESUME;
 ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_ENGINEERING RESUME;
 ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT RESUME;
 
@@ -198,7 +248,7 @@ ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT SUSPE
 ### Teardown
 
 ```bash
-snow dcm teardown --from pipeline --target DEV
+snow dcm teardown --from resources/pipeline --target DEV
 ```
 
 Or via SQL:
@@ -207,15 +257,16 @@ EXECUTE DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE P
 DROP DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
 ```
 
-## Git Workflow
+## Git Workflow (GitHub Actions)
 
-In a CI/CD setup, the pipeline definition lives in Git and deploys automatically:
+Single Snowflake account, two environments — DEV deploys on **dev data**
+(`DEV_SNOWHEALTH_ML_DB`), PROD on **prod data** (`PRD_SNOWHEALTH_ML_DB`). See the root
+README's *CI/CD* section for setup.
 
-| Branch | Action | Target |
-|--------|--------|--------|
-| `feature/*` | `snow dcm plan` (preview only) | DEV |
-| `develop` | `snow dcm deploy` on merge | DEV |
-| `main` | `snow dcm deploy --variable model_version=<pinned>` on merge | PROD |
+| Event | Workflow | DEV | PROD |
+|-------|----------|-----|------|
+| PR → `main` | `.github/workflows/ci.yml` | `snow feature plan` + `snow dcm plan` | — |
+| Merge to `main` | `.github/workflows/deploy.yml` | deploy + run DAG + validate | deploy + run DAG + validate (only after DEV passes) |
 
 Version tracking spans three layers:
 

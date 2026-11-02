@@ -1,10 +1,13 @@
 """
 SnowHealth Pipeline — Step 2: Model Training
-Trains XGBoost on pipeline features, registers to Snowflake Model Registry.
+Builds a point-in-time training set from the declarative Feature Store
+(SNOWHEALTH_PIPELINE_FV/V1), trains XGBoost, registers to Model Registry.
 
 Environment variables (set by DCM templating via env_vars):
   - DCM_DATABASE: target database
   - DCM_SCHEMA: target schema
+  - FS_SCHEMA: feature store schema (managed by `snow feature apply`)
+  - FV_NAME / FV_VERSION: feature view to train from
 """
 
 import os
@@ -13,7 +16,9 @@ import time
 import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
+from snowflake.ml.feature_store import CreationMode, FeatureStore
 from snowflake.ml.registry import Registry
+from snowflake.snowpark import functions as F
 from snowflake.snowpark.context import get_active_session
 from xgboost import XGBRegressor
 
@@ -22,28 +27,43 @@ print("Step 2: Model Training — Started")
 
 DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
 SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
-print(f"Target: {DB}.{SCHEMA}")
+FS_SCHEMA = os.environ.get("FS_SCHEMA", "SNOWHEALTH_PIPELINE_FS")
+FV_NAME = os.environ.get("FV_NAME", "SNOWHEALTH_PIPELINE_FV")
+FV_VERSION = os.environ.get("FV_VERSION", "V1")
+print(f"Target: {DB}.{SCHEMA} | Feature view: {DB}.{FS_SCHEMA}.{FV_NAME}/{FV_VERSION}")
 
-# Load pipeline features
-df = session.table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES").to_pandas()
-print(f"Loaded {len(df):,} feature rows")
+# Feature view is declared in feature_store/ and deployed by `snow feature apply`
+fs = FeatureStore(
+    session=session,
+    database=DB,
+    name=FS_SCHEMA,
+    default_warehouse=session.get_current_warehouse(),
+    creation_mode=CreationMode.FAIL_IF_NOT_EXIST,
+)
+fv = fs.get_feature_view(FV_NAME, FV_VERSION)
+feature_cols = [c.strip('"') for c in fv.feature_names]
 
-# Identify numeric feature columns (exclude metadata and target)
-exclude = {
+# Spine: entity key + event timestamp + label from raw transactions
+spine = session.table(f"{DB}.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS").select(
     "TRANSACTION_ID",
-    "TRANSACTION_DATE",
-    "STORE_ID",
-    "SKU_ID",
-    "PRODUCT_NAME",
-    "REGION",
-    "PRODUCT_CATEGORY",
-    "FULFILLMENT_CHANNEL",
+    F.to_timestamp_ntz("TRANSACTION_DATE").alias("TRANSACTION_DATE"),
     "UNITS_SOLD",
-}
-feature_cols = [
-    c for c in df.columns if c not in exclude and df[c].dtype in ("int64", "float64")
-]
-print(f"Features: {len(feature_cols)}")
+)
+
+# Point-in-time (ASOF) join of features onto the spine
+df = (
+    fs.generate_training_set(
+        spine_df=spine,
+        features=[fv],
+        spine_timestamp_col="TRANSACTION_DATE",
+        spine_label_cols=["UNITS_SOLD"],
+    )
+    .sort("TRANSACTION_ID")
+    .to_pandas()
+)
+print(f"Training set: {len(df):,} rows, {len(feature_cols)} features")
+if df[feature_cols].isna().all(axis=1).any():
+    raise ValueError("Spine rows with no matching features — feature view is stale")
 
 X = df[feature_cols].astype(float)
 y = df["UNITS_SOLD"].astype(float)
@@ -93,6 +113,6 @@ mv = registry.log_model(
     sample_input_data=X_train.head(10),
     metrics={"mae": mae, "rmse": rmse, "r2": r2},
     target_platforms=["WAREHOUSE"],
-    comment=f"Pipeline XGBoost (RMSE={rmse:.3f})",
+    comment=f"Pipeline XGBoost (RMSE={rmse:.3f}) trained on {FS_SCHEMA}.{FV_NAME}/{FV_VERSION}",
 )
 print(f"Step 2 COMPLETE: Registered SNOWHEALTH_PIPELINE_MODEL version {version_name}")

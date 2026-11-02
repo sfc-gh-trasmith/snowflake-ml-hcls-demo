@@ -6,10 +6,11 @@ Environment variables (set by DCM templating via env_vars):
   - DCM_DATABASE: target database
   - DCM_SCHEMA: target schema
   - MODEL_VERSION: "latest" (auto) or specific version name (pinned)
+  - FS_SCHEMA / FV_NAME / FV_VERSION: feature view used for the holdout set
 
 Usage:
-  DEV (auto):  snow dcm deploy --from pipeline --target DEV
-  PROD (pin):  snow dcm deploy --from pipeline --target PROD --variable model_version=PIPELINE_20261012_v3
+  DEV (auto):  snow dcm deploy --from resources/pipeline --target DEV
+  PROD (pin):  snow dcm deploy --from resources/pipeline --target PROD --variable model_version=PIPELINE_20261012_v3
 """
 
 import os
@@ -18,7 +19,9 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
+from snowflake.ml.feature_store import CreationMode, FeatureStore
 from snowflake.ml.registry import Registry
+from snowflake.snowpark import functions as F
 from snowflake.snowpark.context import get_active_session
 
 session = get_active_session()
@@ -27,6 +30,9 @@ print("Step 3: Model Deployment — Started")
 DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
 SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
 model_version = os.environ.get("MODEL_VERSION", "latest")
+FS_SCHEMA = os.environ.get("FS_SCHEMA", "SNOWHEALTH_PIPELINE_FS")
+FV_NAME = os.environ.get("FV_NAME", "SNOWHEALTH_PIPELINE_FV")
+FV_VERSION = os.environ.get("FV_VERSION", "V1")
 print(f"Target: {DB}.{SCHEMA} | MODEL_VERSION={model_version}")
 
 # Load model registry
@@ -41,22 +47,31 @@ else:
     target = model_ref.version(model_version)
     print(f"Using pinned version: {target.version_name}")
 
-# Load test data for evaluation
-df = session.table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES").to_pandas()
-exclude = {
+# Load evaluation data from the Feature Store (same spine + split as training)
+fs = FeatureStore(
+    session=session,
+    database=DB,
+    name=FS_SCHEMA,
+    default_warehouse=session.get_current_warehouse(),
+    creation_mode=CreationMode.FAIL_IF_NOT_EXIST,
+)
+fv = fs.get_feature_view(FV_NAME, FV_VERSION)
+feature_cols = [c.strip('"') for c in fv.feature_names]
+spine = session.table(f"{DB}.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS").select(
     "TRANSACTION_ID",
-    "TRANSACTION_DATE",
-    "STORE_ID",
-    "SKU_ID",
-    "PRODUCT_NAME",
-    "REGION",
-    "PRODUCT_CATEGORY",
-    "FULFILLMENT_CHANNEL",
+    F.to_timestamp_ntz("TRANSACTION_DATE").alias("TRANSACTION_DATE"),
     "UNITS_SOLD",
-}
-feature_cols = [
-    c for c in df.columns if c not in exclude and df[c].dtype in ("int64", "float64")
-]
+)
+df = (
+    fs.generate_training_set(
+        spine_df=spine,
+        features=[fv],
+        spine_timestamp_col="TRANSACTION_DATE",
+        spine_label_cols=["UNITS_SOLD"],
+    )
+    .sort("TRANSACTION_ID")
+    .to_pandas()
+)
 
 X = df[feature_cols].astype(float)
 y = df["UNITS_SOLD"].astype(float)

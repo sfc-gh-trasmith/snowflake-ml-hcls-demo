@@ -40,7 +40,7 @@ df["DOW_SIN"] = np.sin(2 * np.pi * df["DAY_OF_WEEK"] / 7)
 df["DOW_COS"] = np.cos(2 * np.pi * df["DAY_OF_WEEK"] / 7)
 
 # Lag + rolling features
-df = df.sort_values(["SKU_ID", "STORE_ID", "TRANSACTION_DATE"])
+df = df.sort_values(["SKU_ID", "STORE_ID", "TRANSACTION_DATE", "TRANSACTION_ID"])
 grp = ["SKU_ID", "STORE_ID"]
 df["ROLLING_7D_AVG"] = df.groupby(grp)["UNITS_SOLD"].transform(
     lambda x: x.rolling(7, min_periods=1).mean()
@@ -118,7 +118,10 @@ df_save = df[keep].copy()
 for c in df_save.select_dtypes(include=["int8", "int16", "int32"]).columns:
     df_save[c] = df_save[c].astype("int64")
 
+# Truncate (not overwrite) so the table keeps its identity — it is the batch
+# source of the declarative feature view SNOWHEALTH_PIPELINE_FV, whose
+# dynamic table would otherwise need reinitialization.
 session.create_dataframe(df_save.reset_index(drop=True)).write.mode(
-    "overwrite"
+    "truncate"
 ).save_as_table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES")
 print(f"Step 1 COMPLETE: Saved {len(df_save):,} rows with {len(keep)} features")

@@ -1,0 +1,103 @@
+# Batch source: the table written by the pipeline's feature engineering task
+# (pipeline/code_bundles/feature_engineering). An explicit query (not `table:`)
+# is required to project columns — `columns:` alone does not filter, and the
+# label UNITS_SOLD would otherwise leak into the feature view. Labels and
+# descriptive attributes come from the training spine instead.
+# (No `description:` — BatchSource descriptions aren't persisted, so setting
+# one produces a perpetual UPDATE_SOURCE diff.)
+kind: BatchSource
+name: SNOWHEALTH_PIPELINE_FEATURES_SRC
+query: |-
+  SELECT
+    TRANSACTION_ID,
+    TRANSACTION_DATE,
+    UNIT_PRICE,
+    PROMOTION_DISCOUNT_PCT,
+    DAY_OF_WEEK,
+    IS_WEEKEND_INT,
+    IS_HOLIDAY_INT,
+    IS_PROMOTION_INT,
+    TEMPERATURE_F,
+    FLU_INDEX,
+    STORE_SIZE_SQFT,
+    STAFF_COUNT,
+    COMPETITOR_PROXIMITY_MILES,
+    INVENTORY_ON_HAND,
+    DAYS_SUPPLY_ON_HAND,
+    LEAD_TIME_DAYS,
+    MONTH,
+    QUARTER,
+    WEEK_OF_YEAR,
+    MONTH_SIN,
+    MONTH_COS,
+    DOW_SIN,
+    DOW_COS,
+    ROLLING_7D_AVG,
+    ROLLING_30D_AVG,
+    LAG_7D,
+    LAG_14D,
+    PRICE_X_PROMO,
+    INVENTORY_TURNOVER,
+    SEASONAL_INDEX
+  FROM {{ source_database }}.{{ source_schema }}.SNOWHEALTH_PIPELINE_FEATURES
+columns:
+  - name: TRANSACTION_ID
+    type: StringType
+  - name: TRANSACTION_DATE
+    type: TimestampType
+  - name: UNIT_PRICE
+    type: DoubleType
+  - name: PROMOTION_DISCOUNT_PCT
+    type: DoubleType
+  - name: DAY_OF_WEEK
+    type: LongType
+  - name: IS_WEEKEND_INT
+    type: LongType
+  - name: IS_HOLIDAY_INT
+    type: LongType
+  - name: IS_PROMOTION_INT
+    type: LongType
+  - name: TEMPERATURE_F
+    type: DoubleType
+  - name: FLU_INDEX
+    type: DoubleType
+  - name: STORE_SIZE_SQFT
+    type: LongType
+  - name: STAFF_COUNT
+    type: LongType
+  - name: COMPETITOR_PROXIMITY_MILES
+    type: DoubleType
+  - name: INVENTORY_ON_HAND
+    type: LongType
+  - name: DAYS_SUPPLY_ON_HAND
+    type: DoubleType
+  - name: LEAD_TIME_DAYS
+    type: LongType
+  - name: MONTH
+    type: LongType
+  - name: QUARTER
+    type: LongType
+  - name: WEEK_OF_YEAR
+    type: LongType
+  - name: MONTH_SIN
+    type: DoubleType
+  - name: MONTH_COS
+    type: DoubleType
+  - name: DOW_SIN
+    type: DoubleType
+  - name: DOW_COS
+    type: DoubleType
+  - name: ROLLING_7D_AVG
+    type: DoubleType
+  - name: ROLLING_30D_AVG
+    type: DoubleType
+  - name: LAG_7D
+    type: DoubleType
+  - name: LAG_14D
+    type: DoubleType
+  - name: PRICE_X_PROMO
+    type: DoubleType
+  - name: INVENTORY_TURNOVER
+    type: DoubleType
+  - name: SEASONAL_INDEX
+    type: DoubleType
