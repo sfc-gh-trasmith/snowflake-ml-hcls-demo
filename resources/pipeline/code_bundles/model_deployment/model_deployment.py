@@ -1,5 +1,5 @@
 """
-SnowHealth Pipeline — Step 3: Model Deployment
+MLOps Pipeline — Step 3: Model Deployment
 Evaluates a model version, enforces quality gate, promotes to default.
 
 Environment variables (set by DCM templating via env_vars):
@@ -27,17 +27,17 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 print("Step 3: Model Deployment — Started")
 
-DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
-SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
+DB = os.environ.get("DCM_DATABASE", "DEV_MLOPS_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "MODELS")
 model_version = os.environ.get("MODEL_VERSION", "latest")
-FS_SCHEMA = os.environ.get("FS_SCHEMA", "SNOWHEALTH_PIPELINE_FS")
-FV_NAME = os.environ.get("FV_NAME", "SNOWHEALTH_PIPELINE_FV")
+FS_SCHEMA = os.environ.get("FS_SCHEMA", "FEATURE_STORE")
+FV_NAME = os.environ.get("FV_NAME", "MLOPS_PIPELINE_FV")
 FV_VERSION = os.environ.get("FV_VERSION", "V1")
 print(f"Target: {DB}.{SCHEMA} | MODEL_VERSION={model_version}")
 
 # Load model registry
 registry = Registry(session=session, database_name=DB, schema_name=SCHEMA)
-model_ref = registry.get_model("SNOWHEALTH_PIPELINE_MODEL")
+model_ref = registry.get_model("MLOPS_PIPELINE_MODEL")
 
 if model_version == "latest":
     versions = model_ref.versions()
@@ -57,7 +57,7 @@ fs = FeatureStore(
 )
 fv = fs.get_feature_view(FV_NAME, FV_VERSION)
 feature_cols = [c.strip('"') for c in fv.feature_names]
-spine = session.table(f"{DB}.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS").select(
+spine = session.table(f"{DB}.RAW.MLOPS_DEMAND_TRANSACTIONS").select(
     "TRANSACTION_ID",
     F.to_timestamp_ntz("TRANSACTION_DATE").alias("TRANSACTION_DATE"),
     "UNITS_SOLD",
@@ -107,7 +107,7 @@ print(f"Smoke test: {len(smoke)} predictions returned")
 deploy_log = pd.DataFrame(
     [
         {
-            "MODEL_NAME": "SNOWHEALTH_PIPELINE_MODEL",
+            "MODEL_NAME": "MLOPS_PIPELINE_MODEL",
             "VERSION": target.version_name,
             "DEPLOYED_AT": pd.Timestamp.now(),
             "RMSE": rmse,
@@ -116,6 +116,6 @@ deploy_log = pd.DataFrame(
     ]
 )
 session.create_dataframe(deploy_log).write.mode("append").save_as_table(
-    f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_DEPLOY_LOG"
+    f"{DB}.{SCHEMA}.MLOPS_PIPELINE_DEPLOY_LOG"
 )
 print(f"Step 3 COMPLETE: {target.version_name} deployed as default")

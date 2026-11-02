@@ -1,7 +1,7 @@
 """
-SnowHealth Pipeline — Step 2: Model Training
+MLOps Pipeline — Step 2: Model Training
 Builds a point-in-time training set from the declarative Feature Store
-(SNOWHEALTH_PIPELINE_FV/V1), trains XGBoost, registers to Model Registry.
+(MLOPS_PIPELINE_FV/V1), trains XGBoost, registers to Model Registry.
 
 Environment variables (set by DCM templating via env_vars):
   - DCM_DATABASE: target database
@@ -25,10 +25,10 @@ from xgboost import XGBRegressor
 session = get_active_session()
 print("Step 2: Model Training — Started")
 
-DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
-SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
-FS_SCHEMA = os.environ.get("FS_SCHEMA", "SNOWHEALTH_PIPELINE_FS")
-FV_NAME = os.environ.get("FV_NAME", "SNOWHEALTH_PIPELINE_FV")
+DB = os.environ.get("DCM_DATABASE", "DEV_MLOPS_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "MODELS")
+FS_SCHEMA = os.environ.get("FS_SCHEMA", "FEATURE_STORE")
+FV_NAME = os.environ.get("FV_NAME", "MLOPS_PIPELINE_FV")
 FV_VERSION = os.environ.get("FV_VERSION", "V1")
 print(f"Target: {DB}.{SCHEMA} | Feature view: {DB}.{FS_SCHEMA}.{FV_NAME}/{FV_VERSION}")
 
@@ -44,7 +44,7 @@ fv = fs.get_feature_view(FV_NAME, FV_VERSION)
 feature_cols = [c.strip('"') for c in fv.feature_names]
 
 # Spine: entity key + event timestamp + label from raw transactions
-spine = session.table(f"{DB}.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS").select(
+spine = session.table(f"{DB}.RAW.MLOPS_DEMAND_TRANSACTIONS").select(
     "TRANSACTION_ID",
     F.to_timestamp_ntz("TRANSACTION_DATE").alias("TRANSACTION_DATE"),
     "UNITS_SOLD",
@@ -101,18 +101,18 @@ registry = Registry(session=session, database_name=DB, schema_name=SCHEMA)
 version_name = f"PIPELINE_{time.strftime('%Y%m%d_%H%M')}"
 
 try:
-    existing = registry.get_model("SNOWHEALTH_PIPELINE_MODEL")
+    existing = registry.get_model("MLOPS_PIPELINE_MODEL")
     print(f"Model exists — adding version {version_name}")
 except Exception:  # noqa: BLE001 — model may not exist yet
-    print("Creating new model SNOWHEALTH_PIPELINE_MODEL")
+    print("Creating new model MLOPS_PIPELINE_MODEL")
 
 mv = registry.log_model(
     model,
-    model_name="SNOWHEALTH_PIPELINE_MODEL",
+    model_name="MLOPS_PIPELINE_MODEL",
     version_name=version_name,
     sample_input_data=X_train.head(10),
     metrics={"mae": mae, "rmse": rmse, "r2": r2},
     target_platforms=["WAREHOUSE"],
     comment=f"Pipeline XGBoost (RMSE={rmse:.3f}) trained on {FS_SCHEMA}.{FV_NAME}/{FV_VERSION}",
 )
-print(f"Step 2 COMPLETE: Registered SNOWHEALTH_PIPELINE_MODEL version {version_name}")
+print(f"Step 2 COMPLETE: Registered MLOPS_PIPELINE_MODEL version {version_name}")

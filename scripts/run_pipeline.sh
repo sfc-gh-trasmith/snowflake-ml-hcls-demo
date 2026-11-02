@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Run the SnowHealth task DAG once in one environment and validate the outputs.
+# Run the MLOps task DAG once in one environment and validate the outputs.
 #
 #   scripts/run_pipeline.sh <DEV|PROD>
 #
@@ -12,15 +12,24 @@ set -euo pipefail
 
 TARGET="${1:?usage: run_pipeline.sh <DEV|PROD>}"
 case "$TARGET" in
-  DEV)  DB=DEV_SNOWHEALTH_ML_DB ;;
-  PROD) DB=PRD_SNOWHEALTH_ML_DB ;;
+  DEV)  DB=DEV_MLOPS_DB ;;
+  PROD) DB=PRD_MLOPS_DB ;;
   *) echo "unknown target: $TARGET" >&2; exit 2 ;;
 esac
-S="$DB.SNOWHEALTH_MODELS"
-ROOT_TASK="$S.SNOWHEALTH_PIPELINE_ROOT"
+S="$DB.MODELS"
+ROOT_TASK="$S.MLOPS_PIPELINE_ROOT"
 TIMEOUT_MIN="${PIPELINE_TIMEOUT_MIN:-40}"
 
-q() { snow sql -x --format json -q "$1"; }
+# Connection: CI uses a temporary connection from SNOWFLAKE_* env vars (`-x`,
+# OIDC). Locally, set SNOWFLAKE_CONNECTION=<name> to reuse a named connection
+# and its cached login; SNOWFLAKE_ROLE (if set) selects the deployer role.
+if [[ -n "${SNOWFLAKE_CONNECTION:-}" ]]; then
+  CONN=(-c "$SNOWFLAKE_CONNECTION" ${SNOWFLAKE_ROLE:+--role "$SNOWFLAKE_ROLE"})
+else
+  CONN=(-x)
+fi
+
+q() { snow sql "${CONN[@]}" --format json -q "$1"; }
 
 START="$(q "SELECT TO_CHAR(CURRENT_TIMESTAMP(), 'YYYY-MM-DD HH24:MI:SS.FF3 TZHTZM') AS T" | jq -r '.[0].T')"
 q "SELECT SYSTEM\$TASK_DEPENDENTS_ENABLE('$ROOT_TASK')" >/dev/null
@@ -33,15 +42,15 @@ trap suspend_root EXIT
 HISTORY_SQL="SELECT NAME, STATE, ERROR_MESSAGE
   FROM TABLE($DB.INFORMATION_SCHEMA.TASK_HISTORY(
          SCHEDULED_TIME_RANGE_START => '$START'::TIMESTAMP_LTZ, RESULT_LIMIT => 100))
-  WHERE NAME LIKE 'SNOWHEALTH%' AND STATE <> 'SCHEDULED'
+  WHERE NAME LIKE 'MLOPS%' AND STATE <> 'SCHEDULED'
   ORDER BY SCHEDULED_TIME"
 
 deadline=$(( $(date +%s) + TIMEOUT_MIN * 60 ))
 while :; do
   sleep 30
   hist="$(q "$HISTORY_SQL")"
-  echo "[$TARGET] $(echo "$hist" | jq -r 'map("\(.NAME|sub("SNOWHEALTH_(TASK_)?";"")):\(.STATE)") | join(" | ")')"
-  if echo "$hist" | jq -e 'any(.NAME == "SNOWHEALTH_TASK_NOTIFY_COMPLETION" and (.STATE == "SUCCEEDED" or .STATE == "FAILED"))' >/dev/null; then
+  echo "[$TARGET] $(echo "$hist" | jq -r 'map("\(.NAME|sub("MLOPS_(TASK_)?";"")):\(.STATE)") | join(" | ")')"
+  if echo "$hist" | jq -e 'any(.NAME == "MLOPS_TASK_NOTIFY_COMPLETION" and (.STATE == "SUCCEEDED" or .STATE == "FAILED"))' >/dev/null; then
     break
   fi
   if (( $(date +%s) > deadline )); then
@@ -56,13 +65,13 @@ fi
 
 # Validate: this run promoted a model version that passed the quality gate
 LOG="$(q "SELECT VERSION, ROUND(RMSE, 3) AS RMSE, STATUS
-  FROM $S.SNOWHEALTH_PIPELINE_DEPLOY_LOG
+  FROM $S.MLOPS_PIPELINE_DEPLOY_LOG
   WHERE STATUS = 'DEPLOYED' AND DEPLOYED_AT >= CONVERT_TIMEZONE('UTC', '$START'::TIMESTAMP_TZ)::TIMESTAMP_NTZ
   ORDER BY DEPLOYED_AT DESC LIMIT 1")"
 if [[ "$(echo "$LOG" | jq 'length')" == "0" ]]; then
-  echo "::error::[$TARGET] no DEPLOYED row in SNOWHEALTH_PIPELINE_DEPLOY_LOG for this run"; exit 1
+  echo "::error::[$TARGET] no DEPLOYED row in MLOPS_PIPELINE_DEPLOY_LOG for this run"; exit 1
 fi
-FV_ROWS="$(q "SELECT COUNT(*) AS N FROM $DB.SNOWHEALTH_PIPELINE_FS.\"SNOWHEALTH_PIPELINE_FV\$V1\"" | jq -r '.[0].N')"
+FV_ROWS="$(q "SELECT COUNT(*) AS N FROM $DB.FEATURE_STORE.\"MLOPS_PIPELINE_FV\$V1\"" | jq -r '.[0].N')"
 
 SUMMARY="### $TARGET pipeline run ✅
 | Check | Result |

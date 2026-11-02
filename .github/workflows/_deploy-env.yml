@@ -1,4 +1,4 @@
-# Reusable: plan / deploy / run the SnowHealth ML stack in one environment.
+# Reusable: plan / deploy / run the MLOps ML stack in one environment.
 # Called by ci.yml (PR → plan DEV) and deploy.yml (main → DEV, then PROD).
 name: _deploy-env
 
@@ -32,14 +32,14 @@ jobs:
     runs-on: ubuntu-latest
     # The environment name is part of the OIDC subject claim:
     #   repo:<owner>@<id>/<repo>@<id>:environment:<environment>
-    # → SVC_SNOWHEALTH_GH_DEV / SVC_SNOWHEALTH_GH_PROD (scripts/setup_cicd.sql)
+    # → SVC_MLOPS_GH_DEV / SVC_MLOPS_GH_PROD (scripts/setup_cicd.sql)
     environment: ${{ inputs.environment }}
     concurrency:
       group: snowflake-${{ inputs.environment }}
       cancel-in-progress: false
     env:
       SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
-      SNOWFLAKE_ROLE: ${{ inputs.target == 'PROD' && 'SNOWHEALTH_PROD_DEPLOYER' || 'SNOWHEALTH_DEV_DEPLOYER' }}
+      SNOWFLAKE_ROLE: ${{ inputs.target == 'PROD' && 'MLOPS_PROD_DEPLOYER' || 'MLOPS_DEV_DEPLOYER' }}
       SNOWFLAKE_WAREHOUSE: COMPUTE_WH
     steps:
       - uses: actions/checkout@v4

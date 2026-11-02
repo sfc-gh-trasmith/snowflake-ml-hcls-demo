@@ -1,10 +1,10 @@
 """
-SnowHealth Pipeline — Step 1: Feature Engineering
+MLOps Pipeline — Step 1: Feature Engineering
 Loads raw transactions, engineers features, saves to pipeline feature table.
 
 Environment variables (set by DCM templating via env_vars):
-  - DCM_DATABASE: target database (e.g. DEV_SNOWHEALTH_ML_DB, PRD_SNOWHEALTH_ML_DB)
-  - DCM_SCHEMA: target schema (e.g. SNOWHEALTH_MODELS)
+  - DCM_DATABASE: target database (e.g. DEV_MLOPS_DB, PRD_MLOPS_DB)
+  - DCM_SCHEMA: target schema (e.g. MODELS)
 """
 
 import os
@@ -16,12 +16,12 @@ from snowflake.snowpark.context import get_active_session
 session = get_active_session()
 print("Step 1: Feature Engineering — Started")
 
-DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
-SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
+DB = os.environ.get("DCM_DATABASE", "DEV_MLOPS_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "MODELS")
 print(f"Target: {DB}.{SCHEMA}")
 
 # Load raw transactions
-df = session.table(f"{DB}.SNOWHEALTH_RAW.SNOWHEALTH_DEMAND_TRANSACTIONS").to_pandas()
+df = session.table(f"{DB}.RAW.MLOPS_DEMAND_TRANSACTIONS").to_pandas()
 print(f"Loaded {len(df):,} raw transactions")
 
 # Calendar features
@@ -119,9 +119,9 @@ for c in df_save.select_dtypes(include=["int8", "int16", "int32"]).columns:
     df_save[c] = df_save[c].astype("int64")
 
 # Truncate (not overwrite) so the table keeps its identity — it is the batch
-# source of the declarative feature view SNOWHEALTH_PIPELINE_FV, whose
+# source of the declarative feature view MLOPS_PIPELINE_FV, whose
 # dynamic table would otherwise need reinitialization.
 session.create_dataframe(df_save.reset_index(drop=True)).write.mode(
     "truncate"
-).save_as_table(f"{DB}.{SCHEMA}.SNOWHEALTH_PIPELINE_FEATURES")
+).save_as_table(f"{DB}.{SCHEMA}.MLOPS_PIPELINE_FEATURES")
 print(f"Step 1 COMPLETE: Saved {len(df_save):,} rows with {len(keep)} features")

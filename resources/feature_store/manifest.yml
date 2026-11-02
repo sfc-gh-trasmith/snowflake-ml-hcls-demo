@@ -1,10 +1,10 @@
 ##############################################################################
-# SnowHealth Declarative Feature Store
+# MLOps Declarative Feature Store
 #
 # Plan:  snow feature plan  --from resources/feature_store --target DEV
 # Apply: snow feature apply --from resources/feature_store --target DEV
 #
-# Feeds the SNOWHEALTH_PIPELINE task DAG (see pipeline/): the feature
+# Feeds the MLOPS_PIPELINE task DAG (see pipeline/): the feature
 # engineering task writes the batch source table, the feature store refresh
 # task refreshes the feature view, and training/deployment read from it.
 ##############################################################################
@@ -15,25 +15,25 @@ default_target: DEV
 targets:
   DEV:
     account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
-    database: DEV_SNOWHEALTH_ML_DB
-    schema: SNOWHEALTH_PIPELINE_FS
-    role: SNOWHEALTH_DEV_DEPLOYER
+    database: DEV_MLOPS_DB
+    schema: FEATURE_STORE
+    role: MLOPS_DEV_DEPLOYER
     templating_config: DEV
 
   PROD:
     account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
-    database: PRD_SNOWHEALTH_ML_DB
-    schema: SNOWHEALTH_PIPELINE_FS
-    role: SNOWHEALTH_PROD_DEPLOYER
+    database: PRD_MLOPS_DB
+    schema: FEATURE_STORE
+    role: MLOPS_PROD_DEPLOYER
     templating_config: PROD
 
 templating:
   defaults:
-    source_database: DEV_SNOWHEALTH_ML_DB
-    source_schema: SNOWHEALTH_MODELS
+    source_database: DEV_MLOPS_DB
+    source_schema: MODELS
     warehouse: COMPUTE_WH
   configurations:
     DEV:
-      source_database: DEV_SNOWHEALTH_ML_DB
+      source_database: DEV_MLOPS_DB
     PROD:
-      source_database: PRD_SNOWHEALTH_ML_DB
+      source_database: PRD_MLOPS_DB

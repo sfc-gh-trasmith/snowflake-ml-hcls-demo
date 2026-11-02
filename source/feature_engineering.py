@@ -1,5 +1,5 @@
 """
-SnowHealth Demand Forecasting - Feature Engineering Module
+MLOps with DCM - Feature Engineering Module
 Transforms raw transaction data into ML-ready features.
 """
 

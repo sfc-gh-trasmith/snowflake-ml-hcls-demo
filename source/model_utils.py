@@ -1,5 +1,5 @@
 """
-SnowHealth Demand Forecasting - Model Utilities
+MLOps with DCM - Model Utilities
 Training, evaluation, comparison, and experiment tracking helpers.
 """
 

@@ -6,7 +6,7 @@
 # (No `description:` — BatchSource descriptions aren't persisted, so setting
 # one produces a perpetual UPDATE_SOURCE diff.)
 kind: BatchSource
-name: SNOWHEALTH_PIPELINE_FEATURES_SRC
+name: MLOPS_PIPELINE_FEATURES_SRC
 query: |-
   SELECT
     TRANSACTION_ID,
@@ -39,7 +39,7 @@ query: |-
     PRICE_X_PROMO,
     INVENTORY_TURNOVER,
     SEASONAL_INDEX
-  FROM {{ source_database }}.{{ source_schema }}.SNOWHEALTH_PIPELINE_FEATURES
+  FROM {{ source_database }}.{{ source_schema }}.MLOPS_PIPELINE_FEATURES
 columns:
   - name: TRANSACTION_ID
     type: StringType

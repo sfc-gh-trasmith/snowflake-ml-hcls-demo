@@ -1,6 +1,6 @@
 """
-SnowHealth Demand Forecasting - Synthetic Data Generator
-Generates realistic retail-pharmacy transaction data for the ML demo.
+MLOps with DCM - Synthetic Data Generator
+Generates realistic retail-retail transaction data for the ML demo.
 """
 
 from datetime import datetime
@@ -37,8 +37,8 @@ SKUS = [
     ("SKU008", "Claritin 24hr", "OTC Allergy", 19.99),
     ("SKU009", "Zyrtec 10mg", "OTC Allergy", 21.99),
     ("SKU010", "Pepto-Bismol", "OTC Digestive", 9.99),
-    ("SKU011", "Flu Shot", "Pharmacy Services", 0.00),
-    ("SKU012", "COVID Test Kit", "Pharmacy Services", 24.99),
+    ("SKU011", "Flu Shot", "Retail Services", 0.00),
+    ("SKU012", "COVID Test Kit", "Retail Services", 24.99),
     ("SKU013", "Multivitamin Daily", "Health & Wellness", 15.99),
     ("SKU014", "Sunscreen SPF50", "Beauty", 11.99),
     ("SKU015", "Hand Sanitizer 8oz", "Health & Wellness", 4.99),
@@ -53,7 +53,7 @@ SEASON_MAP = {
     "OTC Cold & Flu": [1.5, 1.3, 1.0, 0.7, 0.5, 0.4, 0.4, 0.5, 0.7, 1.0, 1.3, 1.6],
     "OTC Allergy": [0.5, 0.7, 1.3, 1.6, 1.5, 1.2, 0.8, 0.7, 0.8, 0.9, 0.6, 0.5],
     "OTC Digestive": [0.9, 0.9, 1.0, 1.0, 1.1, 1.2, 1.2, 1.1, 1.0, 1.0, 1.1, 1.1],
-    "Pharmacy Services": [1.4, 1.2, 0.9, 0.7, 0.6, 0.5, 0.5, 0.6, 1.0, 1.3, 1.5, 1.4],
+    "Retail Services": [1.4, 1.2, 0.9, 0.7, 0.6, 0.5, 0.5, 0.6, 1.0, 1.3, 1.5, 1.4],
     "Health & Wellness": [1.2, 1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.1, 1.2],
     "Beauty": [0.7, 0.7, 0.9, 1.0, 1.3, 1.5, 1.5, 1.4, 1.1, 0.9, 0.7, 0.7],
 }
@@ -62,14 +62,14 @@ REGION_TEMP_BASE = {"Northeast": 35, "Southeast": 55, "Midwest": 30, "West": 50}
 
 
 def generate_transactions(n_rows: int = 10000, seed: int = 42) -> pd.DataFrame:
-    """Generate synthetic retail-pharmacy demand transactions.
+    """Generate synthetic retail-retail demand transactions.
 
     Args:
         n_rows: Number of transaction rows to generate.
         seed:   Random seed for reproducibility.
 
     Returns:
-        DataFrame with 25 columns matching the SNOWHEALTH_DEMAND_TRANSACTIONS schema.
+        DataFrame with 25 columns matching the MLOPS_DEMAND_TRANSACTIONS schema.
     """
     np.random.seed(seed)
 

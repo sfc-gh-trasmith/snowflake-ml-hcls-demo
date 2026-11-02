@@ -1,39 +1,39 @@
 ##############################################################################
-# SnowHealth Demand Forecasting — ML Pipeline (templatized)
+# MLOps with DCM — ML Pipeline (templatized)
 #
 # Deploy to DEV:  snow dcm deploy --from resources/pipeline --target DEV
 # Deploy to PROD: snow dcm deploy --from resources/pipeline --target PROD
 #
 # DAG:
-#   SNOWHEALTH_PIPELINE_ROOT
-#     └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING        (writes FV batch source)
-#           └─> SNOWHEALTH_TASK_FEATURE_STORE_REFRESH (refreshes FV dynamic table)
-#                 └─> SNOWHEALTH_TASK_MODEL_TRAINING  (training set from FV)
-#                       └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+#   MLOPS_PIPELINE_ROOT
+#     └─> MLOPS_TASK_FEATURE_ENGINEERING        (writes FV batch source)
+#           └─> MLOPS_TASK_FEATURE_STORE_REFRESH (refreshes FV dynamic table)
+#                 └─> MLOPS_TASK_MODEL_TRAINING  (training set from FV)
+#                       └─> MLOPS_TASK_MODEL_DEPLOYMENT
 #
 # The feature view itself is declared in ../feature_store and deployed with
 # `snow feature apply` — deploy it before this project.
-#   SNOWHEALTH_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
+#   MLOPS_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
 ##############################################################################
 definitions:
 
   # ── Code Bundles ─────────────────────────────────────────────────────────
   - resource: code_bundle
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_FEATURE_ENGINEERING'
+    name: '{{ database }}.{{ schema }}.MLOPS_CB_FEATURE_ENGINEERING'
     from:
       type: asset
       asset: feature_engineering_bundle
-    comment: Engineers 30+ features from raw pharmacy transactions
+    comment: Engineers 30+ features from raw retail transactions
 
   - resource: code_bundle
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_MODEL_TRAINING'
+    name: '{{ database }}.{{ schema }}.MLOPS_CB_MODEL_TRAINING'
     from:
       type: asset
       asset: model_training_bundle
     comment: Trains XGBoost regressor and registers to Model Registry
 
   - resource: code_bundle
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_MODEL_DEPLOYMENT'
+    name: '{{ database }}.{{ schema }}.MLOPS_CB_MODEL_DEPLOYMENT'
     from:
       type: asset
       asset: model_deployment_bundle
@@ -43,24 +43,24 @@ definitions:
 
   # Root task — scheduled trigger
   - resource: task
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_PIPELINE_ROOT'
+    name: '{{ database }}.{{ schema }}.MLOPS_PIPELINE_ROOT'
     warehouse: '{{ warehouse }}'
     schedule:
       type: cron
       value: '{{ cron_schedule }}'
     definition:
       type: sql
-      value: "SELECT 'SnowHealth ML Pipeline triggered' AS status"
+      value: "SELECT 'MLOps DCM Pipeline triggered' AS status"
 
   # Step 1: Feature Engineering
   - resource: task
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_ENGINEERING'
+    name: '{{ database }}.{{ schema }}.MLOPS_TASK_FEATURE_ENGINEERING'
     warehouse: '{{ warehouse }}'
     predecessors:
-      - '{{ database }}.{{ schema }}.SNOWHEALTH_PIPELINE_ROOT'
+      - '{{ database }}.{{ schema }}.MLOPS_PIPELINE_ROOT'
     definition:
       type: code_bundle
-      name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_FEATURE_ENGINEERING'
+      name: '{{ database }}.{{ schema }}.MLOPS_CB_FEATURE_ENGINEERING'
       entrypoint: feature_engineering.py
       specification:
         bundle:
@@ -74,28 +74,28 @@ definitions:
             - DCM_DATABASE: '{{ database }}'
             - DCM_SCHEMA: '{{ schema }}'
           properties:
-            result_stage: '@{{ schema }}.SNOWHEALTH_PIPELINE_RESULTS'
+            result_stage: '@{{ schema }}.MLOPS_PIPELINE_RESULTS'
 
   # Step 1b: Feature Store refresh — materialize the declarative feature view
   # (feature_store/sources/feature_views) from the freshly engineered source
   - resource: task
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_STORE_REFRESH'
+    name: '{{ database }}.{{ schema }}.MLOPS_TASK_FEATURE_STORE_REFRESH'
     warehouse: '{{ warehouse }}'
     predecessors:
-      - '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_ENGINEERING'
+      - '{{ database }}.{{ schema }}.MLOPS_TASK_FEATURE_ENGINEERING'
     definition:
       type: sql
       value: ALTER DYNAMIC TABLE {{ database }}.{{ fs_schema }}.{{ fv_name }}${{ fv_version }} REFRESH
 
   # Step 2: Model Training
   - resource: task
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_MODEL_TRAINING'
+    name: '{{ database }}.{{ schema }}.MLOPS_TASK_MODEL_TRAINING'
     warehouse: '{{ warehouse }}'
     predecessors:
-      - '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_STORE_REFRESH'
+      - '{{ database }}.{{ schema }}.MLOPS_TASK_FEATURE_STORE_REFRESH'
     definition:
       type: code_bundle
-      name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_MODEL_TRAINING'
+      name: '{{ database }}.{{ schema }}.MLOPS_CB_MODEL_TRAINING'
       entrypoint: model_training.py
       specification:
         bundle:
@@ -112,17 +112,17 @@ definitions:
             - FV_NAME: '{{ fv_name }}'
             - FV_VERSION: '{{ fv_version }}'
           properties:
-            result_stage: '@{{ schema }}.SNOWHEALTH_PIPELINE_RESULTS'
+            result_stage: '@{{ schema }}.MLOPS_PIPELINE_RESULTS'
 
   # Step 3: Model Deployment (quality gate → promote → smoke test)
   - resource: task
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_MODEL_DEPLOYMENT'
+    name: '{{ database }}.{{ schema }}.MLOPS_TASK_MODEL_DEPLOYMENT'
     warehouse: '{{ warehouse }}'
     predecessors:
-      - '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_MODEL_TRAINING'
+      - '{{ database }}.{{ schema }}.MLOPS_TASK_MODEL_TRAINING'
     definition:
       type: code_bundle
-      name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_MODEL_DEPLOYMENT'
+      name: '{{ database }}.{{ schema }}.MLOPS_CB_MODEL_DEPLOYMENT'
       entrypoint: model_deployment.py
       specification:
         bundle:
@@ -140,21 +140,21 @@ definitions:
             - FV_NAME: '{{ fv_name }}'
             - FV_VERSION: '{{ fv_version }}'
           properties:
-            result_stage: '@{{ schema }}.SNOWHEALTH_PIPELINE_RESULTS'
+            result_stage: '@{{ schema }}.MLOPS_PIPELINE_RESULTS'
 
   # Finalizer — runs after root task completes (success or failure)
   - resource: task
-    name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_NOTIFY_COMPLETION'
+    name: '{{ database }}.{{ schema }}.MLOPS_TASK_NOTIFY_COMPLETION'
     warehouse: '{{ warehouse }}'
-    finalize: '{{ database }}.{{ schema }}.SNOWHEALTH_PIPELINE_ROOT'
+    finalize: '{{ database }}.{{ schema }}.MLOPS_PIPELINE_ROOT'
     state: started
     definition:
       type: sql
       value: |-
-        INSERT INTO {{ database }}.{{ schema }}.SNOWHEALTH_PIPELINE_DEPLOY_LOG
+        INSERT INTO {{ database }}.{{ schema }}.MLOPS_PIPELINE_DEPLOY_LOG
             (MODEL_NAME, VERSION, DEPLOYED_AT, RMSE, STATUS)
         SELECT
-            'SNOWHEALTH_PIPELINE_MODEL',
+            'MLOPS_PIPELINE_MODEL',
             SYSTEM$TASK_RUNTIME_INFO('CURRENT_ROOT_TASK_UUID'),
             CURRENT_TIMESTAMP(),
             0,

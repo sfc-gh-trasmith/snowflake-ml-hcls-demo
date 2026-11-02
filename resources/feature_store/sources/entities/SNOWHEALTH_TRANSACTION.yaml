@@ -1,6 +1,0 @@
-kind: Entity
-name: SNOWHEALTH_TRANSACTION
-join_keys:
-  - name: TRANSACTION_ID
-    type: StringType
-description: One pharmacy transaction (SKU x store x channel x date). Feature grain for demand forecasting.

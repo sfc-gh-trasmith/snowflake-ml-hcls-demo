@@ -2,7 +2,7 @@
 -- Per-environment bootstrap — run by CI (as the target's deployer role) before
 -- `snow feature apply` and `snow dcm deploy`. Idempotent.
 --
---   snow sql -f scripts/bootstrap_env.sql -D "db=DEV_SNOWHEALTH_ML_DB" -x
+--   snow sql -f scripts/bootstrap_env.sql -D "db=DEV_MLOPS_DB" -x
 --
 -- Creates the objects neither DCM nor the feature store project manage:
 --   * the DCM project object itself
@@ -10,14 +10,14 @@
 --   * the feature table schema, so the feature view's batch source resolves
 --     before the first pipeline run populates it
 -- ============================================================================
-CREATE SCHEMA IF NOT EXISTS <% db %>.SNOWHEALTH_MODELS;
+CREATE SCHEMA IF NOT EXISTS <% db %>.MODELS;
 
-CREATE DCM PROJECT IF NOT EXISTS <% db %>.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
+CREATE DCM PROJECT IF NOT EXISTS <% db %>.MODELS.MLOPS_PIPELINE;
 
-CREATE STAGE IF NOT EXISTS <% db %>.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS
-    COMMENT = 'Code bundle results for SNOWHEALTH_PIPELINE';
+CREATE STAGE IF NOT EXISTS <% db %>.MODELS.MLOPS_PIPELINE_RESULTS
+    COMMENT = 'Code bundle results for MLOPS_PIPELINE';
 
-CREATE TABLE IF NOT EXISTS <% db %>.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_DEPLOY_LOG (
+CREATE TABLE IF NOT EXISTS <% db %>.MODELS.MLOPS_PIPELINE_DEPLOY_LOG (
     MODEL_NAME VARCHAR,
     VERSION VARCHAR,
     DEPLOYED_AT TIMESTAMP_NTZ,
@@ -25,8 +25,8 @@ CREATE TABLE IF NOT EXISTS <% db %>.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_DEPLOY
     STATUS VARCHAR
 );
 
--- Output of SNOWHEALTH_TASK_FEATURE_ENGINEERING (written with mode("truncate"))
-CREATE TABLE IF NOT EXISTS <% db %>.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_FEATURES (
+-- Output of MLOPS_TASK_FEATURE_ENGINEERING (written with mode("truncate"))
+CREATE TABLE IF NOT EXISTS <% db %>.MODELS.MLOPS_PIPELINE_FEATURES (
     TRANSACTION_ID VARCHAR,
     TRANSACTION_DATE TIMESTAMP_NTZ,
     STORE_ID VARCHAR,

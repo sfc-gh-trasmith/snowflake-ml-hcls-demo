@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="snowflake-source" content="cortex-agent-authored" />
+  <title>MLOps with DCM on Snowflake — Documentation</title>
+  <script type="application/json" id="snowflake-report-metadata">
+  {
+    "generated": "2026-11-02",
+    "intent": "Reference documentation for the MLOps-with-DCM template: DCM project, declarative feature store, task-graph pipeline, and GitHub Actions dev/prod promotion",
+    "dataSources": [
+      { "type": "file", "path": "resources/pipeline/manifest.yml" },
+      { "type": "file", "path": "resources/pipeline/sources/definitions/pipeline.yml" },
+      { "type": "file", "path": "resources/feature_store/manifest.yml" },
+      { "type": "file", "path": "resources/feature_store/sources/" },
+      { "type": "file", "path": ".github/workflows/" },
+      { "type": "file", "path": "scripts/" }
+    ],
+    "sections": [
+      { "id": "overview", "title": "Overview", "producerNotes": "Hand-written from the repository layout." },
+      { "id": "architecture", "title": "Architecture" },
+      { "id": "environments", "title": "Environments, identity and access", "dataSources": [{ "type": "file", "path": "scripts/setup_cicd.sql" }] },
+      { "id": "feature-store", "title": "Declarative feature store project", "dataSources": [{ "type": "file", "path": "resources/feature_store/" }] },
+      { "id": "dcm-project", "title": "DCM project", "dataSources": [{ "type": "file", "path": "resources/pipeline/" }] },
+      { "id": "pipeline", "title": "Pipeline (task graph)", "dataSources": [{ "type": "file", "path": "resources/pipeline/sources/definitions/pipeline.yml" }] },
+      { "id": "deploy-lifecycle", "title": "Deployment lifecycle", "dataSources": [{ "type": "file", "path": "scripts/deploy_env.sh" }, { "type": "file", "path": "scripts/bootstrap_env.sql" }] },
+      { "id": "cicd", "title": "CI/CD with GitHub Actions", "dataSources": [{ "type": "file", "path": ".github/workflows/" }] },
+      { "id": "operations", "title": "Operations", "dataSources": [{ "type": "file", "path": "scripts/run_pipeline.sh" }] },
+      { "id": "adapting", "title": "Adapting the template" },
+      { "id": "troubleshooting", "title": "Troubleshooting", "producerNotes": "Issues hit while building and testing the template." },
+      { "id": "reference", "title": "Object reference" }
+    ]
+  }
+  </script>
+  <style>
+    :root { color-scheme: light dark; --accent: light-dark(#0b6bcb, #5aa9f0); --muted: light-dark(#5b6472, #9aa4b2); --line: light-dark(#d8dde5, #343b46); --soft: light-dark(#f4f6f9, #1b2028); }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, system-ui, "Segoe UI", sans-serif; line-height: 1.6; margin: 0; color: light-dark(#1f2937, #e5e7eb); background: light-dark(#ffffff, #12161c); }
+    .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); max-width: 1180px; margin: 0 auto; }
+    nav { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; padding: 24px 16px; border-right: 1px solid var(--line); font-size: 14px; }
+    nav a { display: block; padding: 4px 8px; border-radius: 6px; color: inherit; text-decoration: none; }
+    nav a:hover { background: var(--soft); }
+    nav .title { font-weight: 700; margin-bottom: 8px; padding: 0 8px; }
+    main { padding: clamp(16px, 4vw, 40px); min-width: 0; }
+    h1 { font-size: clamp(26px, 4vw, 34px); margin: 0 0 4px; color: light-dark(#0f172a, #f1f5f9); }
+    h2 { margin-top: 48px; padding-top: 8px; border-top: 1px solid var(--line); color: light-dark(#0f172a, #f1f5f9); }
+    h3 { margin-top: 28px; color: light-dark(#0f172a, #f1f5f9); }
+    .lead { color: var(--muted); font-size: 17px; margin-top: 0; }
+    a { color: var(--accent); }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9em; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+    pre { background: var(--soft); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.5; }
+    pre code { background: none; padding: 0; }
+    .table-wrap { overflow-x: auto; margin: 16px 0; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; vertical-align: top; }
+    th { background: var(--soft); font-weight: 600; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin: 16px 0; }
+    .card { border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: var(--soft); }
+    .card b { display: block; margin-bottom: 4px; }
+    .note { border-left: 4px solid var(--accent); background: var(--soft); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 16px 0; }
+    .warn { border-left-color: light-dark(#c2410c, #fb923c); }
+    svg { max-width: 100%; height: auto; display: block; margin: 16px 0; }
+    svg text { fill: light-dark(#1f2937, #e5e7eb); font-family: -apple-system, system-ui, sans-serif; }
+    svg .box { fill: light-dark(#eef4fb, #1d2733); stroke: var(--accent); stroke-width: 1.5; }
+    svg .box2 { fill: light-dark(#f6f1fb, #261f30); stroke: light-dark(#7c3aed, #a78bfa); stroke-width: 1.5; }
+    svg .edge { stroke: var(--muted); stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+    svg .small { font-size: 11px; fill: var(--muted); }
+    @media (max-width: 820px) { .layout { grid-template-columns: 1fr; } nav { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); } }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <nav>
+    <div class="title">MLOps with DCM</div>
+    <a href="#overview">Overview</a>
+    <a href="#architecture">Architecture</a>
+    <a href="#environments">Environments &amp; access</a>
+    <a href="#feature-store">Feature store project</a>
+    <a href="#dcm-project">DCM project</a>
+    <a href="#pipeline">Pipeline (task graph)</a>
+    <a href="#deploy-lifecycle">Deployment lifecycle</a>
+    <a href="#cicd">CI/CD</a>
+    <a href="#operations">Operations</a>
+    <a href="#adapting">Adapting the template</a>
+    <a href="#troubleshooting">Troubleshooting</a>
+    <a href="#reference">Object reference</a>
+  </nav>
+  <main>
+    <h1>MLOps with DCM on Snowflake</h1>
+    <p class="lead">A template for running ML workloads on Snowflake entirely as code — declared in Git, planned before applying, and promoted from DEV to PROD through CI.</p>
+
+    <h2 id="overview">Overview</h2>
+    <p>The template wires together three declarative tools so that every Snowflake object an ML workload needs — features, compute jobs, schedules, model promotion — is defined in files, reviewed in pull requests, and deployed identically to each environment:</p>
+    <div class="cards">
+      <div class="card"><b>DCM project</b>Database Change Management. Declares the pipeline's code bundles and task graph; <code>snow dcm plan</code> diffs, <code>snow dcm deploy</code> converges.</div>
+      <div class="card"><b>Declarative Feature Store</b>Entities, sources and feature views as YAML; <code>snow feature plan</code> / <code>apply</code> with the same plan-then-apply model.</div>
+      <div class="card"><b>GitHub Actions + OIDC</b>PRs plan DEV; merges deploy and run DEV, then promote to PROD. No stored credentials.</div>
+    </div>
+    <p>The ML code itself (an XGBoost regressor on synthetic transaction data) is intentionally simple. It exists to exercise the pattern: a feature step, a feature store refresh, a training step that logs to the Model Registry, and a deployment step with a quality gate. Replace any of them with your own logic without changing how things are deployed.</p>
+
+    <h3>Design principles</h3>
+    <ul>
+      <li><b>Everything declarative, everything planned.</b> Both the feature store and the DCM project have a read-only plan step. CI runs plans on every PR; nothing is applied without a plan having been produced.</li>
+      <li><b>One definition, many environments.</b> The same files deploy to DEV and PROD; differences live only in manifest <code>targets</code> and <code>templating</code>.</li>
+      <li><b>Environments are isolated, compute is shared.</b> Each environment has its own database, deployer role and service identity. The warehouse and compute pool are shared to keep a single-account setup cheap.</li>
+      <li><b>CI never writes source data.</b> Raw data belongs to ingestion. CI deploys definitions and runs the pipeline over whatever data the environment has.</li>
+      <li><b>Promotion is gated.</b> PROD only deploys after DEV deployed <em>and</em> ran end-to-end successfully. Inside each run, a model version only becomes the default if it passes the quality gate.</li>
+    </ul>
+
+    <h2 id="architecture">Architecture</h2>
+    <svg viewBox="0 0 860 330" role="img" aria-label="GitHub Actions authenticates with OIDC to per-environment service users in one Snowflake account">
+      <defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" opacity="0.6"/></marker></defs>
+      <rect class="box" x="10" y="20" width="250" height="290" rx="10"/>
+      <text x="30" y="48" font-weight="700">GitHub</text>
+      <rect class="box2" x="30" y="66" width="210" height="58" rx="8"/><text x="45" y="90">Pull request → ci.yml</text><text class="small" x="45" y="110">plan DEV (feature + DCM)</text>
+      <rect class="box2" x="30" y="140" width="210" height="72" rx="8"/><text x="45" y="164">Merge to main → deploy.yml</text><text class="small" x="45" y="184">job dev: deploy + run + validate</text><text class="small" x="45" y="200">job prod: needs dev</text>
+      <text class="small" x="30" y="240">environment: dev  → OIDC sub …:environment:dev</text>
+      <text class="small" x="30" y="258">environment: prod → OIDC sub …:environment:prod</text>
+      <rect class="box" x="330" y="20" width="520" height="290" rx="10"/>
+      <text x="350" y="48" font-weight="700">Snowflake (single account)</text>
+      <rect class="box2" x="350" y="66" width="230" height="100" rx="8"/><text x="365" y="90" font-weight="600">DEV</text><text class="small" x="365" y="110">SVC_MLOPS_GH_DEV</text><text class="small" x="365" y="126">→ MLOPS_DEV_DEPLOYER</text><text class="small" x="365" y="146">DEV_MLOPS_DB (dev data)</text>
+      <rect class="box2" x="600" y="66" width="230" height="100" rx="8"/><text x="615" y="90" font-weight="600">PROD</text><text class="small" x="615" y="110">SVC_MLOPS_GH_PROD</text><text class="small" x="615" y="126">→ MLOPS_PROD_DEPLOYER</text><text class="small" x="615" y="146">PRD_MLOPS_DB (prod data)</text>
+      <rect class="box" x="350" y="190" width="480" height="100" rx="8"/><text x="365" y="214" font-weight="600">Shared compute</text><text class="small" x="365" y="236">COMPUTE_WH — SQL tasks, feature view refresh, Model Registry inference</text><text class="small" x="365" y="254">MLOPS_COMPUTE_POOL — code bundles (ML Jobs)</text><text class="small" x="365" y="272">GITHUB_ACTIONS_POLICY — managed network rule for runners</text>
+      <path class="edge" d="M240,175 C300,175 300,116 350,116"/>
+      <path class="edge" d="M240,190 C420,250 560,200 600,150"/>
+    </svg>
+
+    <h3>Per-environment database layout</h3>
+<pre><code>&lt;ENV&gt;_MLOPS_DB
+├── RAW             MLOPS_DEMAND_TRANSACTIONS — source data (ingestion-owned)
+├── FEATURE_STORE   declarative feature store
+│     MLOPS_TRANSACTION (entity), MLOPS_PIPELINE_FV$V1 (dynamic table)
+└── MODELS          DCM project MLOPS_PIPELINE
+      code bundles  MLOPS_CB_FEATURE_ENGINEERING / _MODEL_TRAINING / _MODEL_DEPLOYMENT
+      task graph    MLOPS_PIPELINE_ROOT … MLOPS_TASK_NOTIFY_COMPLETION
+      MLOPS_PIPELINE_FEATURES (feature source table), MLOPS_PIPELINE_MODEL (registry),
+      MLOPS_PIPELINE_DEPLOY_LOG, MLOPS_PIPELINE_RESULTS (stage)</code></pre>
+
+    <h3>Repository layout</h3>
+<pre><code>.github/workflows/   ci.yml · deploy.yml · _deploy-env.yml
+resources/
+  feature_store/     manifest.yml + sources/{entities,datasources,feature_views,feature_groups}
+  pipeline/          manifest.yml + sources/definitions/pipeline.yml + code_bundles/*
+scripts/             deploy_env.sh · run_pipeline.sh · bootstrap_env.sql · setup_cicd.sql · seed_data.py
+notebooks/           optional interactive tour of Snowflake ML features
+source/              shared Python for notebooks + synthetic data generator
+docs/docs.html       this document</code></pre>
+
+    <h2 id="environments">Environments, identity and access</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th></th><th>DEV</th><th>PROD</th></tr></thead>
+      <tbody>
+        <tr><td>Manifest target</td><td><code>DEV</code></td><td><code>PROD</code></td></tr>
+        <tr><td>GitHub environment</td><td><code>dev</code></td><td><code>prod</code></td></tr>
+        <tr><td>Database</td><td><code>DEV_MLOPS_DB</code></td><td><code>PRD_MLOPS_DB</code></td></tr>
+        <tr><td>Data</td><td>dev sample (seed 42)</td><td>prod sample (seed 2026)</td></tr>
+        <tr><td>Service user</td><td><code>SVC_MLOPS_GH_DEV</code></td><td><code>SVC_MLOPS_GH_PROD</code></td></tr>
+        <tr><td>Deployer role</td><td><code>MLOPS_DEV_DEPLOYER</code></td><td><code>MLOPS_PROD_DEPLOYER</code></td></tr>
+        <tr><td>Cron</td><td>Mon 06:00 ET</td><td>Mon 04:00 ET</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>Identity: OIDC workload identity federation</h3>
+    <p>GitHub mints a short-lived OIDC token for each job; <code>snowflakedb/snowflake-actions@v3</code> passes it to the Snowflake CLI. Snowflake maps the token's issuer + subject to exactly one service user:</p>
+<pre><code>CREATE USER SVC_MLOPS_GH_DEV TYPE = SERVICE DEFAULT_ROLE = MLOPS_DEV_DEPLOYER;
+ALTER USER SVC_MLOPS_GH_DEV SET WORKLOAD_IDENTITY = (
+  TYPE = OIDC
+  ISSUER = 'https://token.actions.githubusercontent.com'
+  SUBJECT = 'repo:&lt;owner&gt;@&lt;owner_id&gt;/&lt;repo&gt;@&lt;repo_id&gt;:environment:dev');</code></pre>
+    <ul>
+      <li>The subject includes the <b>GitHub environment</b>, so only jobs declared with <code>environment: dev</code> can act as the DEV user, and likewise for PROD. Required reviewers on the <code>prod</code> environment therefore gate PROD credentials, not just the job.</li>
+      <li>This repo uses GitHub's <em>immutable</em> subject format (owner and repo IDs). Get yours with <code>gh api repos/&lt;owner&gt;/&lt;repo&gt;/actions/oidc/customization/sub</code>.</li>
+      <li>An issuer + subject pair can be bound to only one user in an account.</li>
+    </ul>
+
+    <h3>Network</h3>
+    <p>If the account has an account-level network policy, GitHub-hosted runners are blocked by default. <code>setup_cicd.sql</code> attaches <code>GITHUB_ACTIONS_POLICY</code> (managed rule <code>SNOWFLAKE.NETWORK_SECURITY.GITHUBACTIONS_GLOBAL</code>) to the two service users only; the account policy is unchanged.</p>
+
+    <h3>Authorization</h3>
+    <p>Each deployer role <b>owns its environment database</b> and every object in it, so DCM and the feature store can create, alter and drop freely there — and nowhere else. Shared grants: <code>USAGE</code> on <code>COMPUTE_WH</code>, <code>USAGE, MONITOR</code> on <code>MLOPS_COMPUTE_POOL</code>, and <code>EXECUTE TASK</code> on the account. Both roles roll up to <code>SYSADMIN</code>.</p>
+
+    <h2 id="feature-store">Declarative feature store project</h2>
+    <p><code>resources/feature_store/</code> is a <a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/feature-store/feature-development-lifecycle">declarative feature store</a> project, deployed with <code>snow feature plan</code> and <code>snow feature apply</code>.</p>
+<pre><code>manifest_version: 1
+type: feature_store
+targets:
+  DEV:  { database: DEV_MLOPS_DB, schema: FEATURE_STORE, role: MLOPS_DEV_DEPLOYER,  templating_config: DEV }
+  PROD: { database: PRD_MLOPS_DB, schema: FEATURE_STORE, role: MLOPS_PROD_DEPLOYER, templating_config: PROD }
+templating:
+  defaults: { source_database: DEV_MLOPS_DB, source_schema: MODELS, warehouse: COMPUTE_WH }</code></pre>
+
+    <div class="table-wrap"><table>
+      <thead><tr><th>File</th><th>Kind</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>entities/MLOPS_TRANSACTION.yaml</code></td><td>Entity</td><td>Join key <code>TRANSACTION_ID</code> — the grain at which features are unique.</td></tr>
+        <tr><td><code>datasources/MLOPS_PIPELINE_FEATURES_SRC.yaml</code></td><td>BatchSource</td><td>A <code>query</code> over <code>MODELS.MLOPS_PIPELINE_FEATURES</code> (written by the feature-engineering task) projecting key, timestamp and feature columns.</td></tr>
+        <tr><td><code>feature_views/MLOPS_PIPELINE_FV.yaml</code></td><td>BatchFeatureView</td><td>Offline view <code>V1</code> materialized as a dynamic table; <code>timestamp_col: TRANSACTION_DATE</code> enables point-in-time joins.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>How the pipeline consumes it</h3>
+<pre><code>fs = FeatureStore(session, database=DB, name="FEATURE_STORE", ...)
+fv = fs.get_feature_view("MLOPS_PIPELINE_FV", "V1")
+df = fs.generate_training_set(
+    spine_df=spine,                      # TRANSACTION_ID, TRANSACTION_DATE, label
+    features=[fv],
+    spine_timestamp_col="TRANSACTION_DATE",
+    spine_label_cols=["UNITS_SOLD"])</code></pre>
+    <p>The label comes from the spine (raw data), never from the feature view. The feature view's version is a templating variable (<code>fv_version</code>) in the DCM manifest, so training can be repointed at <code>V2</code> by changing one value.</p>
+
+    <h3>Change semantics</h3>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Edit</th><th>Plan op</th><th>CI behaviour</th></tr></thead>
+      <tbody>
+        <tr><td><code>refresh_freq</code>, <code>warehouse</code>, <code>description</code></td><td><code>UPDATE_FV</code></td><td>Applied in place.</td></tr>
+        <tr><td>Source query/columns, aggregation, <code>refresh_mode</code></td><td><code>RECREATE_FV</code> (destructive)</td><td>Refused — CI never passes <code>--destructive</code>. Publish a new <code>version</code> instead.</td></tr>
+        <tr><td>Remove a file</td><td>none by default</td><td>Deletion detection is off unless <code>--delete</code> is passed.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="dcm-project">DCM project</h2>
+    <p><code>resources/pipeline/</code> is a DCM project (manifest v2) whose definitions are written in Pipeline Builder YAML.</p>
+<pre><code>manifest_version: 2
+type: DCM_PROJECT
+default_target: DEV
+targets:
+  DEV:  { project_name: DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE, project_owner: MLOPS_DEV_DEPLOYER,  templating_config: DEV }
+  PROD: { project_name: PRD_MLOPS_DB.MODELS.MLOPS_PIPELINE, project_owner: MLOPS_PROD_DEPLOYER, templating_config: PROD }
+templating:
+  defaults:
+    database: DEV_MLOPS_DB
+    schema: MODELS
+    warehouse: COMPUTE_WH
+    compute_pool: MLOPS_COMPUTE_POOL
+    cron_schedule: "0 6 * * 1 America/New_York"
+    model_version: latest
+    fs_schema: FEATURE_STORE
+    fv_name: MLOPS_PIPELINE_FV
+    fv_version: V1
+  configurations:
+    PROD: { database: PRD_MLOPS_DB, cron_schedule: "0 4 * * 1 America/New_York" }
+assets:
+  feature_engineering_bundle: { path: 'code_bundles/feature_engineering/**/*' }
+  model_training_bundle:      { path: 'code_bundles/model_training/**/*' }
+  model_deployment_bundle:    { path: 'code_bundles/model_deployment/**/*' }</code></pre>
+
+    <h3>Code bundles</h3>
+    <p>Each <code>code_bundles/&lt;step&gt;/</code> directory holds a Python entrypoint plus <code>code_bundle.yml</code>. Bundles use <code>type: ml</code> (pre-built ML runtime) and <code>compute_type: compute_pool</code>, so each step runs as an ML Job on <code>MLOPS_COMPUTE_POOL</code>.</p>
+
+    <h3>Passing configuration into Python</h3>
+    <p>Templating values flow to the scripts as environment variables declared on each task:</p>
+<pre><code>manifest.yml templating  →  pipeline.yml env_vars  →  os.environ in the bundle
+  database                    DCM_DATABASE
+  schema                      DCM_SCHEMA
+  fs_schema / fv_name / fv_version → FS_SCHEMA / FV_NAME / FV_VERSION
+  model_version               MODEL_VERSION   ("latest" or a pinned version)</code></pre>
+    <p>No database names are hard-coded in Python, so the same bundles run in every environment.</p>
+
+    <h2 id="pipeline">Pipeline (task graph)</h2>
+    <svg viewBox="0 0 860 240" role="img" aria-label="Task graph from root through feature engineering, feature store refresh, training and deployment, with a finalizer">
+      <rect class="box" x="10" y="90" width="140" height="56" rx="8"/><text x="22" y="114" font-size="13">PIPELINE_ROOT</text><text class="small" x="22" y="132">cron</text>
+      <rect class="box2" x="180" y="90" width="150" height="56" rx="8"/><text x="192" y="114" font-size="13">FEATURE_ENG.</text><text class="small" x="192" y="132">code bundle</text>
+      <rect class="box" x="360" y="90" width="150" height="56" rx="8"/><text x="372" y="114" font-size="13">FS_REFRESH</text><text class="small" x="372" y="132">SQL: refresh FV</text>
+      <rect class="box2" x="540" y="90" width="140" height="56" rx="8"/><text x="552" y="114" font-size="13">TRAINING</text><text class="small" x="552" y="132">code bundle</text>
+      <rect class="box2" x="710" y="90" width="140" height="56" rx="8"/><text x="722" y="114" font-size="13">DEPLOYMENT</text><text class="small" x="722" y="132">quality gate</text>
+      <rect class="box" x="300" y="180" width="260" height="46" rx="8"/><text x="312" y="208" font-size="13">NOTIFY_COMPLETION (finalizer)</text>
+      <path class="edge" d="M150,118 L178,118"/><path class="edge" d="M330,118 L358,118"/><path class="edge" d="M510,118 L538,118"/><path class="edge" d="M680,118 L708,118"/>
+      <path class="edge" stroke-dasharray="4 4" d="M80,146 C80,205 200,203 298,203"/>
+      <text class="small" x="12" y="30">All names prefixed MLOPS_ / MLOPS_TASK_. The finalizer runs after the graph whether it succeeded or failed.</text>
+    </svg>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Task</th><th>Type</th><th>Reads</th><th>Writes</th></tr></thead>
+      <tbody>
+        <tr><td><code>MLOPS_PIPELINE_ROOT</code></td><td>SQL</td><td>—</td><td>— (scheduled trigger)</td></tr>
+        <tr><td><code>MLOPS_TASK_FEATURE_ENGINEERING</code></td><td>code bundle</td><td><code>RAW.MLOPS_DEMAND_TRANSACTIONS</code></td><td><code>MODELS.MLOPS_PIPELINE_FEATURES</code> (truncate + insert)</td></tr>
+        <tr><td><code>MLOPS_TASK_FEATURE_STORE_REFRESH</code></td><td>SQL</td><td>feature source table</td><td><code>ALTER DYNAMIC TABLE …MLOPS_PIPELINE_FV$V1 REFRESH</code></td></tr>
+        <tr><td><code>MLOPS_TASK_MODEL_TRAINING</code></td><td>code bundle</td><td>spine + feature view</td><td>new version of <code>MLOPS_PIPELINE_MODEL</code> (with metrics)</td></tr>
+        <tr><td><code>MLOPS_TASK_MODEL_DEPLOYMENT</code></td><td>code bundle</td><td>model version + holdout from FV</td><td>default version, <code>MLOPS_PIPELINE_DEPLOY_LOG</code></td></tr>
+        <tr><td><code>MLOPS_TASK_NOTIFY_COMPLETION</code></td><td>SQL finalizer</td><td>task runtime info</td><td><code>MLOPS_PIPELINE_DEPLOY_LOG</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">The feature-engineering step writes with <code>mode("truncate")</code>, not <code>overwrite</code>: overwrite replaces the table, which would force the feature view's dynamic table to reinitialize.</div>
+
+    <h3>Quality gate and model versioning</h3>
+    <ul>
+      <li>Training registers a timestamped version (<code>PIPELINE_YYYYMMDD_HHMM</code>) with MAE/RMSE/R² metrics.</li>
+      <li>Deployment evaluates the chosen version on the holdout split (same spine, same split seed as training). If RMSE exceeds the threshold it raises, the task fails, and the previous default stays live.</li>
+      <li><code>model_version</code> = <code>latest</code> auto-selects the newest version; set it to a specific version name (e.g. <code>--variable model_version=PIPELINE_20261102_1807</code>) to pin what PROD promotes.</li>
+    </ul>
+
+    <h2 id="deploy-lifecycle">Deployment lifecycle</h2>
+    <p><code>scripts/deploy_env.sh &lt;DEV|PROD&gt; &lt;plan|deploy&gt;</code> is the single entrypoint used by CI and locally. It copies <code>resources/</code> to a scratch directory, fills the manifests' <code>&lt;YOUR_ORG&gt;-&lt;YOUR_ACCOUNT&gt;</code> placeholder from <code>SNOWFLAKE_ACCOUNT</code>, and then:</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>#</th><th>Step</th><th>plan</th><th>deploy</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>snow connection test</code></td><td>✓</td><td>✓</td></tr>
+        <tr><td>2</td><td><code>bootstrap_env.sql</code> — DCM project object, results stage, deploy log, feature source table (all <code>IF NOT EXISTS</code>)</td><td></td><td>✓</td></tr>
+        <tr><td>3</td><td><code>snow feature init</code> in a scratch copy — ensures the feature store schema/metadata exist</td><td></td><td>✓</td></tr>
+        <tr><td>4</td><td><code>snow feature plan</code></td><td>✓</td><td>✓</td></tr>
+        <tr><td>5</td><td><code>snow feature apply</code> (never <code>--destructive</code>)</td><td></td><td>✓</td></tr>
+        <tr><td>6</td><td><code>snow dcm plan</code></td><td>✓</td><td>✓</td></tr>
+        <tr><td>7</td><td><code>snow dcm deploy --alias gh-&lt;run_id&gt;-&lt;sha&gt;</code></td><td></td><td>✓</td></tr>
+      </tbody>
+    </table></div>
+    <p><b>Ordering matters:</b> the feature view must exist before the DCM tasks that refresh and read it run, and the feature source table must exist before the feature view (whose batch source queries it) is applied — hence bootstrap → feature store → DCM.</p>
+    <div class="note"><code>snow feature init</code> also exports deployed objects into <code>sources/</code>. Running it in a scratch copy keeps those exports from mixing with the authored definitions.</div>
+
+    <h3>Connections</h3>
+    <ul>
+      <li><b>CI:</b> temporary connection (<code>-x</code>) from <code>SNOWFLAKE_*</code> environment variables populated by the OIDC action.</li>
+      <li><b>Local:</b> set <code>SNOWFLAKE_CONNECTION=&lt;name&gt;</code> to reuse a named connection and its cached login, and <code>SNOWFLAKE_ROLE</code> to act as a deployer role.</li>
+    </ul>
+<pre><code>SNOWFLAKE_CONNECTION=my_conn SNOWFLAKE_ROLE=MLOPS_DEV_DEPLOYER \
+SNOWFLAKE_ACCOUNT=MYORG-MYACCOUNT scripts/deploy_env.sh DEV plan</code></pre>
+    <p><code>snow feature</code> requires <code>snowflake-ml-python[feature_store]</code> in the same interpreter as the CLI: <code>uv tool install snowflake-cli --with "snowflake-ml-python[feature_store]"</code>.</p>
+
+    <h2 id="cicd">CI/CD with GitHub Actions</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Workflow</th><th>Trigger</th><th>Jobs</th></tr></thead>
+      <tbody>
+        <tr><td><code>ci.yml</code></td><td>PR to <code>main</code> touching <code>resources/</code>, <code>scripts/</code>, workflows</td><td><code>plan-dev</code>: <code>deploy_env.sh DEV plan</code></td></tr>
+        <tr><td><code>deploy.yml</code></td><td>push to <code>main</code> (same paths), manual dispatch</td><td><code>dev</code>: deploy + <code>run_pipeline.sh DEV</code> → <code>prod</code> (<code>needs: dev</code>): deploy + <code>run_pipeline.sh PROD</code></td></tr>
+        <tr><td><code>_deploy-env.yml</code></td><td><code>workflow_call</code></td><td>Reusable job: checkout → install CLI + feature store extra → OIDC → deploy_env.sh → optional run_pipeline.sh</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Reusable job essentials</h3>
+<pre><code>permissions: { id-token: write, contents: read }
+jobs:
+  snowflake:
+    environment: ${{ inputs.environment }}          # selects the OIDC subject → service user
+    concurrency: { group: snowflake-${{ inputs.environment }}, cancel-in-progress: false }
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_ROLE: ${{ inputs.target == 'PROD' &amp;&amp; 'MLOPS_PROD_DEPLOYER' || 'MLOPS_DEV_DEPLOYER' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv tool install --python 3.12 snowflake-cli --with "snowflake-ml-python[feature_store]"
+      - uses: snowflakedb/snowflake-actions@v3
+        with: { use-oidc: true, oidc-audience: snowflakecomputing.com }
+      - run: bash scripts/deploy_env.sh "${{ inputs.target }}" "${{ inputs.mode }}"</code></pre>
+    <ul>
+      <li><b>Only one variable:</b> <code>SNOWFLAKE_ACCOUNT</code> (repo variable, not a secret).</li>
+      <li><b>Concurrency per environment</b> prevents two deploys from racing on the same DCM project lock.</li>
+      <li><b>Manual PROD approval:</b> add required reviewers to the <code>prod</code> GitHub environment; the PROD job (and its credentials) then waits for sign-off.</li>
+    </ul>
+    <h3>Suggested Git flow</h3>
+    <ol>
+      <li>Branch, change definitions or code bundles.</li>
+      <li>Open a PR — review the feature store and DCM plans in the <code>ci</code> run.</li>
+      <li>Merge — DEV deploys and runs; on success PROD deploys and runs.</li>
+      <li>Every DCM deploy is recorded with an alias (<code>snow dcm list-deployments</code>); every model version is in the Model Registry; every change is a commit.</li>
+    </ol>
+
+    <h2 id="operations">Operations</h2>
+    <h3>Run the pipeline once</h3>
+    <p><code>scripts/run_pipeline.sh &lt;DEV|PROD&gt;</code> enables the graph (<code>SYSTEM$TASK_DEPENDENTS_ENABLE</code>), runs <code>EXECUTE TASK</code> on the root, polls <code>TASK_HISTORY</code> until the finalizer completes, fails on any failed task, checks that a <code>DEPLOYED</code> row was logged, and re-suspends the root on exit.</p>
+    <div class="note">Because the script re-suspends the root, the weekly cron only fires where you deliberately leave it resumed: <code>ALTER TASK &lt;DB&gt;.MODELS.MLOPS_PIPELINE_ROOT RESUME</code>.</div>
+    <h3>Monitor</h3>
+<pre><code>-- task runs
+SELECT NAME, STATE, ERROR_MESSAGE, SCHEDULED_TIME, COMPLETED_TIME
+FROM TABLE(DEV_MLOPS_DB.INFORMATION_SCHEMA.TASK_HISTORY(
+  SCHEDULED_TIME_RANGE_START => DATEADD('hour', -24, CURRENT_TIMESTAMP())))
+WHERE NAME LIKE 'MLOPS%' ORDER BY SCHEDULED_TIME DESC;
+
+-- promotions
+SELECT * FROM DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE_DEPLOY_LOG ORDER BY DEPLOYED_AT DESC;
+
+-- feature view refreshes
+SELECT * FROM TABLE(DEV_MLOPS_DB.INFORMATION_SCHEMA.DYNAMIC_TABLE_REFRESH_HISTORY(
+  NAME => 'DEV_MLOPS_DB.FEATURE_STORE.MLOPS_PIPELINE_FV$V1'));</code></pre>
+    <h3>Roll back</h3>
+    <ul>
+      <li><b>Definitions:</b> revert the commit and merge; the deploy workflow converges both environments to the reverted state.</li>
+      <li><b>Model:</b> set the default version back — <code>ALTER MODEL …MLOPS_PIPELINE_MODEL SET DEFAULT_VERSION = '&lt;version&gt;'</code> — or pin <code>model_version</code>.</li>
+    </ul>
+    <h3>Tear down an environment</h3>
+<pre><code>snow dcm purge  &lt;DB&gt;.MODELS.MLOPS_PIPELINE --target &lt;T&gt; --force   # drops managed objects
+snow dcm drop   &lt;DB&gt;.MODELS.MLOPS_PIPELINE                       # drops project metadata
+snow feature plan --delete … then apply --destructive              # removes feature store objects</code></pre>
+    <div class="note warn">Purge is irreversible and drops data in managed objects. <code>snow dcm drop</code> alone leaves the managed objects behind.</div>
+
+    <h2 id="adapting">Adapting the template</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Goal</th><th>Change</th></tr></thead>
+      <tbody>
+        <tr><td>Use your own data</td><td>Land it in <code>&lt;ENV&gt;_MLOPS_DB.RAW</code> via your ingestion; update the feature-engineering bundle and the spine in the training/deployment bundles.</td></tr>
+        <tr><td>Change features</td><td>Edit the feature-engineering bundle and the batch source query. For a breaking change, add <code>MLOPS_PIPELINE_FV</code> <code>version: V2</code>, deploy, then bump <code>fv_version</code> in the DCM manifest.</td></tr>
+        <tr><td>Change the model</td><td>Edit <code>code_bundles/model_training/</code>; keep logging to the registry with metrics.</td></tr>
+        <tr><td>Change promotion rules</td><td>Edit the quality gate in <code>code_bundles/model_deployment/</code>.</td></tr>
+        <tr><td>Add a pipeline step</td><td>Add a <code>resource: code_bundle</code> + <code>resource: task</code> to <code>pipeline.yml</code>, an asset in the manifest, and wire <code>predecessors</code>.</td></tr>
+        <tr><td>Add an environment (e.g. STAGE)</td><td>New target + templating config in both manifests, a database/role/user in <code>setup_cicd.sql</code>, a GitHub environment, and a job in <code>deploy.yml</code>.</td></tr>
+        <tr><td>Use your own repo</td><td>Update the two OIDC <code>SUBJECT</code> values in <code>setup_cicd.sql</code> and set the <code>SNOWFLAKE_ACCOUNT</code> variable.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="troubleshooting">Troubleshooting</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Symptom</th><th>Cause / fix</th></tr></thead>
+      <tbody>
+        <tr><td><code>snow feature</code> missing or failing to import</td><td><code>snowflake-ml-python[feature_store]</code> isn't in the CLI's interpreter. Install them together (<code>uv tool install snowflake-cli --with …</code>); Python 3.12 is a safe version.</td></tr>
+        <tr><td><code>Account mismatch: manifest target … specifies '&lt;YOUR_ORG&gt;-&lt;YOUR_ACCOUNT&gt;'</code></td><td>Run through <code>deploy_env.sh</code> (fills the placeholder) or set <code>account_identifier</code> to the canonical <code>ORG-ACCOUNT</code> form.</td></tr>
+        <tr><td><code>Schema … is not initialized as a feature store</code></td><td>Run <code>snow feature init --target &lt;T&gt;</code> once (deploy mode does this automatically).</td></tr>
+        <tr><td>Feature view exposes the label or string columns</td><td>A table-backed BatchSource's <code>columns:</code> doesn't project. Use an explicit <code>query</code> listing only key, timestamp and features.</td></tr>
+        <tr><td>Plan always shows <code>UPDATE_SOURCE</code></td><td>BatchSource <code>description</code> isn't persisted; remove it.</td></tr>
+        <tr><td><code>… already exists, but current role has no privileges on it</code> (DCM plan)</td><td>An object is owned by another role. Code bundles are <code>NOTEBOOK PROJECT</code> objects: <code>GRANT OWNERSHIP ON ALL NOTEBOOK PROJECTS IN SCHEMA …</code>.</td></tr>
+        <tr><td><code>OIDC Authenticator for Issuer … and Subject … already exists</code></td><td>Another user holds that subject. <code>ALTER USER &lt;old&gt; UNSET WORKLOAD_IDENTITY</code> first.</td></tr>
+        <tr><td>Runner can't connect (network policy)</td><td>Attach <code>GITHUB_ACTIONS_POLICY</code> (managed rule <code>GITHUBACTIONS_GLOBAL</code>) to the service users.</td></tr>
+        <tr><td><code>invalid type [TIMESTAMP_TZ] for parameter 'SCHEDULED_TIME_RANGE_START'</code></td><td><code>TASK_HISTORY</code> expects <code>TIMESTAMP_LTZ</code>.</td></tr>
+        <tr><td>DCM deploy hangs / “currently being executed by another process”</td><td>A previous deploy still holds the project lock. Find the running <code>EXECUTE DCM PROJECT</code> query and cancel it; workflow concurrency groups prevent this in CI.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="reference">Object reference</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Object</th><th>Managed by</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>&lt;ENV&gt;_MLOPS_DB</code>, schemas <code>RAW</code>, <code>MODELS</code></td><td><code>setup_cicd.sql</code></td><td>Owned by the env's deployer role.</td></tr>
+        <tr><td><code>RAW.MLOPS_DEMAND_TRANSACTIONS</code></td><td>ingestion (<code>seed_data.py</code> in the demo)</td><td>Never written by CI.</td></tr>
+        <tr><td><code>FEATURE_STORE</code> schema + metadata</td><td><code>snow feature init</code></td><td>Created on first deploy.</td></tr>
+        <tr><td><code>MLOPS_TRANSACTION</code>, <code>MLOPS_PIPELINE_FV/V1</code></td><td>feature store project</td><td><code>snow feature apply</code>.</td></tr>
+        <tr><td><code>MODELS.MLOPS_PIPELINE</code> (DCM project), <code>MLOPS_PIPELINE_RESULTS</code>, <code>MLOPS_PIPELINE_DEPLOY_LOG</code>, <code>MLOPS_PIPELINE_FEATURES</code></td><td><code>bootstrap_env.sql</code></td><td>Idempotent; run on every deploy.</td></tr>
+        <tr><td><code>MLOPS_CB_*</code> code bundles, <code>MLOPS_PIPELINE_ROOT</code> + <code>MLOPS_TASK_*</code></td><td>DCM project</td><td><code>snow dcm deploy</code>.</td></tr>
+        <tr><td><code>MLOPS_PIPELINE_MODEL</code></td><td>pipeline (training task)</td><td>Model Registry; default version set by the deployment task.</td></tr>
+        <tr><td><code>MLOPS_DEV_DEPLOYER</code>, <code>MLOPS_PROD_DEPLOYER</code>, <code>SVC_MLOPS_GH_DEV</code>, <code>SVC_MLOPS_GH_PROD</code>, <code>MLOPS_COMPUTE_POOL</code>, <code>GITHUB_ACTIONS_POLICY</code></td><td><code>setup_cicd.sql</code></td><td>Account-level, one-time.</td></tr>
+      </tbody>
+    </table></div>
+    <p>References: <a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/feature-store/feature-development-lifecycle">Declarative feature store</a> · <a href="https://docs.snowflake.com/en/developer-guide/snowflake-cli/cicd/github-action">Snowflake CLI GitHub Action</a> · <a href="https://docs.snowflake.com/en/user-guide/workload-identity-federation">Workload identity federation</a> · <a href="https://docs.snowflake.com/en/developer-guide/builders/devops-with-snowflake">DevOps with Snowflake</a></p>
+  </main>
+</div>
+</body>
+</html>

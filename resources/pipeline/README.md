@@ -1,10 +1,10 @@
-# SnowHealth ML Pipeline
+# MLOps DCM Pipeline
 
 ## Overview
 
-A production-ready, automated ML pipeline for retail pharmacy demand forecasting built entirely on Snowflake-native infrastructure. This pipeline demonstrates how to operationalize an end-to-end MLOps workflow using **DCM Projects** (Database Change Management), **Pipeline Builder**, and **Code Bundles** — no external orchestrators, no third-party tools.
+A template ML pipeline built entirely on Snowflake-native infrastructure. It shows how to operationalize an end-to-end MLOps workflow using **DCM Projects** (Database Change Management), **Pipeline Builder**, and **Code Bundles** — no external orchestrators, no third-party tools. The sample model (XGBoost on synthetic transactions) is a placeholder for your own.
 
-The pipeline runs on a weekly cron schedule: it engineers features from raw pharmacy transactions, trains an XGBoost model on compute pools, evaluates against a quality gate, and promotes the winning version to production — all as a single declarative DAG managed as code.
+The pipeline runs on a weekly cron schedule: it engineers features from raw retail transactions, trains an XGBoost model on compute pools, evaluates against a quality gate, and promotes the winning version to production — all as a single declarative DAG managed as code.
 
 ## Key Concepts
 
@@ -32,21 +32,21 @@ Code Bundles package Python scripts alongside their execution specification (com
 ## Pipeline DAG
 
 ```
-SNOWHEALTH_PIPELINE_ROOT (weekly cron: Monday 6 AM ET)
-  └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING
-        └─> SNOWHEALTH_TASK_FEATURE_STORE_REFRESH
-              └─> SNOWHEALTH_TASK_MODEL_TRAINING
-                    └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
-SNOWHEALTH_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
+MLOPS_PIPELINE_ROOT (weekly cron: Monday 6 AM ET)
+  └─> MLOPS_TASK_FEATURE_ENGINEERING
+        └─> MLOPS_TASK_FEATURE_STORE_REFRESH
+              └─> MLOPS_TASK_MODEL_TRAINING
+                    └─> MLOPS_TASK_MODEL_DEPLOYMENT
+MLOPS_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
 ```
 
 | Step | Code Bundle | What It Does |
 |------|-------------|-------------|
-| **Feature Engineering** | `feature_engineering.py` | Loads raw pharmacy transactions, engineers 30+ features (temporal, lag, rolling, interaction), writes to `SNOWHEALTH_PIPELINE_FEATURES` |
-| **Feature Store Refresh** | SQL task | Refreshes the declarative feature view `SNOWHEALTH_PIPELINE_FV/V1` (dynamic table in `SNOWHEALTH_PIPELINE_FS`) from the freshly engineered source table |
-| **Model Training** | `model_training.py` | Builds a point-in-time training set with `FeatureStore.generate_training_set()` (raw-transaction spine + FV), trains XGBoost regressor, registers versioned model in Snowflake Model Registry as `SNOWHEALTH_PIPELINE_MODEL` with timestamped version |
-| **Model Deployment** | `model_deployment.py` | Evaluates on holdout set, enforces RMSE quality gate (< 15.0), promotes to default version, runs smoke test, logs to `SNOWHEALTH_PIPELINE_DEPLOY_LOG` |
-| **Finalizer** | SQL task | Logs pipeline completion status to `SNOWHEALTH_PIPELINE_DEPLOY_LOG` — runs regardless of whether the pipeline succeeded or failed |
+| **Feature Engineering** | `feature_engineering.py` | Loads raw retail transactions, engineers 30+ features (temporal, lag, rolling, interaction), writes to `MLOPS_PIPELINE_FEATURES` |
+| **Feature Store Refresh** | SQL task | Refreshes the declarative feature view `MLOPS_PIPELINE_FV/V1` (dynamic table in `FEATURE_STORE`) from the freshly engineered source table |
+| **Model Training** | `model_training.py` | Builds a point-in-time training set with `FeatureStore.generate_training_set()` (raw-transaction spine + FV), trains XGBoost regressor, registers versioned model in Snowflake Model Registry as `MLOPS_PIPELINE_MODEL` with timestamped version |
+| **Model Deployment** | `model_deployment.py` | Evaluates on holdout set, enforces RMSE quality gate (< 15.0), promotes to default version, runs smoke test, logs to `MLOPS_PIPELINE_DEPLOY_LOG` |
+| **Finalizer** | SQL task | Logs pipeline completion status to `MLOPS_PIPELINE_DEPLOY_LOG` — runs regardless of whether the pipeline succeeded or failed |
 
 ## Declarative Feature Store
 
@@ -59,16 +59,16 @@ feature store project owns the *feature definitions* (entity, batch source, feat
 feature_store/
 ├── manifest.yml                                  # targets (DEV/PROD) + templating
 └── sources/
-    ├── entities/SNOWHEALTH_TRANSACTION.yaml      # join key: TRANSACTION_ID
-    ├── datasources/SNOWHEALTH_PIPELINE_FEATURES_SRC.yaml  # query over the FE task's output (28 features)
-    └── feature_views/SNOWHEALTH_PIPELINE_FV.yaml # offline BatchFeatureView V1 (dynamic table)
+    ├── entities/MLOPS_TRANSACTION.yaml      # join key: TRANSACTION_ID
+    ├── datasources/MLOPS_PIPELINE_FEATURES_SRC.yaml  # query over the FE task's output (28 features)
+    └── feature_views/MLOPS_PIPELINE_FV.yaml # offline BatchFeatureView V1 (dynamic table)
 ```
 
 How the two projects connect at runtime:
 
 ```
-FEATURE_ENGINEERING ─writes→ SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_FEATURES   (batch source)
-FEATURE_STORE_REFRESH ─refreshes→ SNOWHEALTH_PIPELINE_FS.SNOWHEALTH_PIPELINE_FV$V1
+FEATURE_ENGINEERING ─writes→ MODELS.MLOPS_PIPELINE_FEATURES   (batch source)
+FEATURE_STORE_REFRESH ─refreshes→ FEATURE_STORE.MLOPS_PIPELINE_FV$V1
 MODEL_TRAINING / MODEL_DEPLOYMENT ─generate_training_set(spine, [FV])→ features + label
 ```
 
@@ -78,10 +78,10 @@ MODEL_TRAINING / MODEL_DEPLOYMENT ─generate_training_set(spine, [FV])→ featu
   label `UNITS_SOLD` would otherwise leak into the feature view.
 - Feature engineering writes with `mode("truncate")` so the source table keeps its identity under the
   dynamic table.
-- Breaking changes to features: publish `SNOWHEALTH_PIPELINE_FV` **V2** and bump `fv_version` in
+- Breaking changes to features: publish `MLOPS_PIPELINE_FV` **V2** and bump `fv_version` in
   `manifest.yml` — V1 keeps serving until the pipeline is redeployed.
 
-Pipeline templating variables: `fs_schema` (`SNOWHEALTH_PIPELINE_FS`), `fv_name`, `fv_version` — passed to the
+Pipeline templating variables: `fs_schema` (`FEATURE_STORE`), `fv_name`, `fv_version` — passed to the
 training/deployment bundles as `FS_SCHEMA`, `FV_NAME`, `FV_VERSION`.
 
 ## Multi-Environment Templating
@@ -90,10 +90,10 @@ All environment-specific values are parameterized via Jinja2 templating in `mani
 
 | Variable | Default | DEV | PROD |
 |----------|---------|-----|------|
-| `database` | DEV_SNOWHEALTH_ML_DB | DEV_SNOWHEALTH_ML_DB | PRD_SNOWHEALTH_ML_DB |
-| `schema` | SNOWHEALTH_MODELS | SNOWHEALTH_MODELS | SNOWHEALTH_MODELS |
+| `database` | DEV_MLOPS_DB | DEV_MLOPS_DB | PRD_MLOPS_DB |
+| `schema` | MODELS | MODELS | MODELS |
 | `warehouse` | COMPUTE_WH | COMPUTE_WH | PROD_ML_WH |
-| `compute_pool` | SNOWHEALTH_COMPUTE_POOL | SNOWHEALTH_COMPUTE_POOL | PROD_COMPUTE_POOL |
+| `compute_pool` | MLOPS_COMPUTE_POOL | MLOPS_COMPUTE_POOL | PROD_COMPUTE_POOL |
 | `cron_schedule` | Monday 6 AM ET | Monday 6 AM ET | Monday 4 AM ET |
 | `model_version` | latest | latest | (override at deploy time) |
 
@@ -113,10 +113,10 @@ env_vars:
   - DCM_SCHEMA: '{{ schema }}'
 ```
 
-At deploy time, `{{ database }}` resolves to `DEV_SNOWHEALTH_ML_DB` (or `PRD_SNOWHEALTH_ML_DB` for PROD). The Python scripts read these at runtime:
+At deploy time, `{{ database }}` resolves to `DEV_MLOPS_DB` (or `PRD_MLOPS_DB` for PROD). The Python scripts read these at runtime:
 ```python
-DB = os.environ.get("DCM_DATABASE", "DEV_SNOWHEALTH_ML_DB")
-SCHEMA = os.environ.get("DCM_SCHEMA", "SNOWHEALTH_MODELS")
+DB = os.environ.get("DCM_DATABASE", "DEV_MLOPS_DB")
+SCHEMA = os.environ.get("DCM_SCHEMA", "MODELS")
 ```
 
 This means **zero hardcoded database references** in Python — the same code runs in any environment.
@@ -177,7 +177,7 @@ pipeline/
 ### Prerequisites
 
 - Snowflake account with `ACCOUNTADMIN` or equivalent role
-- Compute pool created: `SNOWHEALTH_COMPUTE_POOL` (CPU_X64_S, 1-5 nodes)
+- Compute pool created: `MLOPS_COMPUTE_POOL` (CPU_X64_S, 1-5 nodes)
 - `snow feature` needs `snowflake-ml-python[feature_store]` in the **same interpreter** as the Snowflake CLI
   (e.g. `uv venv -p 3.12 .venv && uv pip install -p .venv/bin/python snowflake-cli "snowflake-ml-python[feature_store]"`)
 
@@ -185,7 +185,7 @@ pipeline/
 
 ```bash
 cd resources/feature_store
-snow feature init --yaml --target DEV   # first time only: bootstraps SNOWHEALTH_PIPELINE_FS
+snow feature init --yaml --target DEV   # first time only: bootstraps FEATURE_STORE
 snow feature plan  --target DEV         # preview CREATE/UPDATE/RECREATE ops
 snow feature apply --target DEV         # add --destructive only for RECREATE_FV/DROP_*
 ```
@@ -196,11 +196,11 @@ The `07_ml_pipeline.ipynb` notebook handles everything — create, deploy, execu
 
 ```sql
 -- Create the DCM project and results stage
-CREATE DCM PROJECT IF NOT EXISTS DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
-CREATE STAGE IF NOT EXISTS DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_RESULTS;
+CREATE DCM PROJECT IF NOT EXISTS DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE;
+CREATE STAGE IF NOT EXISTS DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE_RESULTS;
 
 -- Deploy directly from the workspace stage
-EXECUTE DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE
+EXECUTE DCM PROJECT DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE
     DEPLOY
     USING CONFIGURATION DEV
     FROM 'snow://workspace/USER$.PUBLIC."snowflake-ml-hcls-demo"/versions/live/resources/pipeline';
@@ -220,29 +220,29 @@ snow dcm plan --from resources/pipeline --target DEV
 
 ```sql
 -- Resume the task DAG (leaf first, root last)
-ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_DEPLOYMENT RESUME;
-ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_MODEL_TRAINING RESUME;
-ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_STORE_REFRESH RESUME;
-ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_TASK_FEATURE_ENGINEERING RESUME;
-ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT RESUME;
+ALTER TASK DEV_MLOPS_DB.MODELS.MLOPS_TASK_MODEL_DEPLOYMENT RESUME;
+ALTER TASK DEV_MLOPS_DB.MODELS.MLOPS_TASK_MODEL_TRAINING RESUME;
+ALTER TASK DEV_MLOPS_DB.MODELS.MLOPS_TASK_FEATURE_STORE_REFRESH RESUME;
+ALTER TASK DEV_MLOPS_DB.MODELS.MLOPS_TASK_FEATURE_ENGINEERING RESUME;
+ALTER TASK DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE_ROOT RESUME;
 
 -- Trigger an immediate run
-EXECUTE TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT;
+EXECUTE TASK DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE_ROOT;
 
 -- Monitor execution
 SELECT NAME, STATE, SCHEDULED_TIME, COMPLETED_TIME
-FROM TABLE(DEV_SNOWHEALTH_ML_DB.INFORMATION_SCHEMA.TASK_HISTORY(
+FROM TABLE(DEV_MLOPS_DB.INFORMATION_SCHEMA.TASK_HISTORY(
     SCHEDULED_TIME_RANGE_START => DATEADD('hour', -1, CURRENT_TIMESTAMP()),
     RESULT_LIMIT => 10
 ))
-WHERE NAME LIKE 'SNOWHEALTH%'
+WHERE NAME LIKE 'MLOPS%'
 ORDER BY SCHEDULED_TIME DESC;
 ```
 
 ### Suspend
 
 ```sql
-ALTER TASK DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE_ROOT SUSPEND;
+ALTER TASK DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE_ROOT SUSPEND;
 ```
 
 ### Teardown
@@ -253,14 +253,14 @@ snow dcm teardown --from resources/pipeline --target DEV
 
 Or via SQL:
 ```sql
-EXECUTE DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE PURGE;
-DROP DCM PROJECT DEV_SNOWHEALTH_ML_DB.SNOWHEALTH_MODELS.SNOWHEALTH_PIPELINE;
+EXECUTE DCM PROJECT DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE PURGE;
+DROP DCM PROJECT DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE;
 ```
 
 ## Git Workflow (GitHub Actions)
 
 Single Snowflake account, two environments — DEV deploys on **dev data**
-(`DEV_SNOWHEALTH_ML_DB`), PROD on **prod data** (`PRD_SNOWHEALTH_ML_DB`). See the root
+(`DEV_MLOPS_DB`), PROD on **prod data** (`PRD_MLOPS_DB`). See the root
 README's *CI/CD* section for setup.
 
 | Event | Workflow | DEV | PROD |
@@ -282,5 +282,5 @@ The deployment step enforces a quality gate before any model reaches production:
 2. RMSE must be < 15.0 (configurable threshold)
 3. If passed → set as default version + smoke test
 4. If failed → `ValueError` raised, task fails, previous default stays live
-5. All results logged to `SNOWHEALTH_PIPELINE_DEPLOY_LOG`
+5. All results logged to `MLOPS_PIPELINE_DEPLOY_LOG`
 6. Finalizer task logs overall pipeline status regardless of outcome
