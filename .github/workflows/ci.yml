@@ -1,0 +1,23 @@
+# PR checks: read-only plan of the feature store + DCM pipeline against DEV.
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "resources/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  plan-dev:
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment: dev
+      target: DEV
+      mode: plan

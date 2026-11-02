@@ -57,11 +57,28 @@ DEV_SNOWHEALTH_ML_DB (Database)
 │   ├── 06_model_monitor.ipynb     Drift detection with Model Version Monitor
 │   └── 07_ml_pipeline.ipynb       Pipeline Builder + Code Bundles + DCM demo
 │
-├── pipeline/                      DCM project — Pipeline Builder + Code Bundles
-│   ├── manifest.yml               Project config (target, owner)
-│   ├── sources/definitions/
-│   │   └── pipeline.yml           3 code bundles + 4 tasks (DAG)
-│   └── code_bundles/              feature_engineering, model_training, model_deployment
+├── .github/workflows/             CI/CD (GitHub Actions + Snowflake OIDC)
+│   ├── ci.yml                     PR → plan DEV
+│   ├── deploy.yml                 main → deploy+run DEV → deploy+run PROD
+│   └── _deploy-env.yml            Reusable per-environment job
+│
+├── scripts/                       CI/CD + admin scripts
+│   ├── deploy_env.sh              bootstrap → snow feature apply → snow dcm deploy
+│   ├── run_pipeline.sh            Execute the DAG once + validate outputs
+│   ├── bootstrap_env.sql          Per-env objects DCM doesn't manage (idempotent)
+│   ├── setup_cicd.sql             One-time admin: roles, OIDC users, PROD database
+│   └── seed_prod_data.py          One-time admin: load PROD raw data
+│
+├── resources/                     Deployable projects (deploy feature_store first)
+│   ├── feature_store/             Declarative Feature Store (snow feature plan/apply)
+│   │   ├── manifest.yml           Targets (DEV/PROD) + templating
+│   │   └── sources/               Entity, batch source, feature view (YAML)
+│   │
+│   └── pipeline/                  DCM project — Pipeline Builder + Code Bundles
+│       ├── manifest.yml           Project config (target, owner)
+│       ├── sources/definitions/
+│       │   └── pipeline.yml       3 code bundles + 6 tasks (DAG incl. feature store refresh)
+│       └── code_bundles/          feature_engineering, model_training, model_deployment
 └── README.md
 ```
 
@@ -114,11 +131,11 @@ DEV_SNOWHEALTH_ML_DB (Database)
 - Deploys, executes, and validates the `SNOWHEALTH_PIPELINE` DCM project
 - Validates outputs: feature table (10K rows), model version in registry, deploy log with RMSE
 
-### pipeline/ — Code Bundles & Pipeline Builder
+### resources/pipeline/ — Code Bundles & Pipeline Builder
 - **DCM project** with 3 code bundles (`ml + compute_pool`) and a 4-task DAG
 - Weekly cron schedule → feature engineering → model training → deployment (quality gate + promote)
 - Each code bundle is a self-contained Python script running on `SNOWHEALTH_COMPUTE_POOL`
-- Deploy: `snow dcm deploy --from pipeline --target DEV`
+- Deploy: `snow dcm deploy --from resources/pipeline --target DEV`
 
 ## Synthetic Data
 
@@ -144,8 +161,45 @@ DEV_SNOWHEALTH_ML_DB (Database)
 | **Model Monitor** | Version monitor with PSI, Diff of Means, Wasserstein drift metrics |
 | **ML Lineage** | Source data → Feature View → Model tracking |
 | **Pipeline Builder** | DCM project with code bundles, task DAG, weekly schedule |
+| **Declarative Feature Store** | `resources/feature_store/` YAML project; pipeline refreshes the FV and trains via `generate_training_set()` |
 | **Compute Pool** | `SNOWHEALTH_COMPUTE_POOL` for Tuner, batch jobs, inference services, and pipeline |
+
+## CI/CD (GitHub Actions)
+
+One Snowflake account, two environments, promoted through Git:
+
+```
+PR → main ──► ci.yml      plan DEV (snow feature plan + snow dcm plan)
+merge     ──► deploy.yml  DEV:  bootstrap → feature apply → dcm deploy → run DAG → validate
+                          PROD: (needs DEV) same steps on PRD_SNOWHEALTH_ML_DB
+```
+
+| | DEV | PROD |
+|---|---|---|
+| GitHub environment | `dev` | `prod` |
+| Database (data) | `DEV_SNOWHEALTH_ML_DB` (dev data, notebook 01) | `PRD_SNOWHEALTH_ML_DB` (prod data) |
+| Service user (OIDC) | `SVC_SNOWHEALTH_GH_DEV` | `SVC_SNOWHEALTH_GH_PROD` |
+| Deployer role | `SNOWHEALTH_DEV_DEPLOYER` | `SNOWHEALTH_PROD_DEPLOYER` |
+
+Auth uses [`snowflakedb/snowflake-actions@v3`](https://docs.snowflake.com/en/developer-guide/snowflake-cli/cicd/github-action)
+with OIDC — no secrets. Each service user trusts only its GitHub environment's subject
+(`repo:<owner>@<id>/<repo>@<id>:environment:<dev|prod>`) and is pinned to the managed
+network rule `SNOWFLAKE.NETWORK_SECURITY.GITHUBACTIONS_GLOBAL`. Warehouse and compute pool
+are shared; data and objects are not.
+
+**One-time setup** (admin):
+
+```bash
+snow sql -f scripts/setup_cicd.sql -c <admin_connection>          # roles, users, PROD db
+python scripts/seed_prod_data.py --connection <admin_connection>  # PROD raw data
+gh api -X PUT repos/<owner>/<repo>/environments/dev
+gh api -X PUT repos/<owner>/<repo>/environments/prod
+gh variable set SNOWFLAKE_ACCOUNT --body "<ORG>-<ACCOUNT>"
+```
+
+Add required reviewers to the `prod` environment (repo Settings → Environments) to gate
+promotion behind a manual approval.
 
 ## Running the Solution
 
-Execute notebooks in order (`01` → `07`). Each notebook imports shared code from `source/` and builds on the outputs of previous notebooks. The pipeline (`07`) requires a prior `snow dcm deploy` from the CLI.
+Execute notebooks in order (`01` → `07`). Each notebook imports shared code from `source/` and builds on the outputs of previous notebooks. The pipeline (`07`) requires a prior `snow feature apply` (from `resources/feature_store/`) and `snow dcm deploy` from the CLI.

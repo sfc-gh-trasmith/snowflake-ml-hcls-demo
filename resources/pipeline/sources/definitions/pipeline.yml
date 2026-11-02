@@ -1,14 +1,18 @@
 ##############################################################################
 # SnowHealth Demand Forecasting — ML Pipeline (templatized)
 #
-# Deploy to DEV:  snow dcm deploy --from pipeline --target DEV
-# Deploy to PROD: snow dcm deploy --from pipeline --target PROD
+# Deploy to DEV:  snow dcm deploy --from resources/pipeline --target DEV
+# Deploy to PROD: snow dcm deploy --from resources/pipeline --target PROD
 #
 # DAG:
 #   SNOWHEALTH_PIPELINE_ROOT
-#     └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING
-#           └─> SNOWHEALTH_TASK_MODEL_TRAINING
-#                 └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+#     └─> SNOWHEALTH_TASK_FEATURE_ENGINEERING        (writes FV batch source)
+#           └─> SNOWHEALTH_TASK_FEATURE_STORE_REFRESH (refreshes FV dynamic table)
+#                 └─> SNOWHEALTH_TASK_MODEL_TRAINING  (training set from FV)
+#                       └─> SNOWHEALTH_TASK_MODEL_DEPLOYMENT
+#
+# The feature view itself is declared in ../feature_store and deployed with
+# `snow feature apply` — deploy it before this project.
 #   SNOWHEALTH_TASK_NOTIFY_COMPLETION (finalizer — runs on success or failure)
 ##############################################################################
 definitions:
@@ -72,12 +76,23 @@ definitions:
           properties:
             result_stage: '@{{ schema }}.SNOWHEALTH_PIPELINE_RESULTS'
 
+  # Step 1b: Feature Store refresh — materialize the declarative feature view
+  # (feature_store/sources/feature_views) from the freshly engineered source
+  - resource: task
+    name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_STORE_REFRESH'
+    warehouse: '{{ warehouse }}'
+    predecessors:
+      - '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_ENGINEERING'
+    definition:
+      type: sql
+      value: ALTER DYNAMIC TABLE {{ database }}.{{ fs_schema }}.{{ fv_name }}${{ fv_version }} REFRESH
+
   # Step 2: Model Training
   - resource: task
     name: '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_MODEL_TRAINING'
     warehouse: '{{ warehouse }}'
     predecessors:
-      - '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_ENGINEERING'
+      - '{{ database }}.{{ schema }}.SNOWHEALTH_TASK_FEATURE_STORE_REFRESH'
     definition:
       type: code_bundle
       name: '{{ database }}.{{ schema }}.SNOWHEALTH_CB_MODEL_TRAINING'
@@ -93,6 +108,9 @@ definitions:
           env_vars:
             - DCM_DATABASE: '{{ database }}'
             - DCM_SCHEMA: '{{ schema }}'
+            - FS_SCHEMA: '{{ fs_schema }}'
+            - FV_NAME: '{{ fv_name }}'
+            - FV_VERSION: '{{ fv_version }}'
           properties:
             result_stage: '@{{ schema }}.SNOWHEALTH_PIPELINE_RESULTS'
 
@@ -118,6 +136,9 @@ definitions:
             - DCM_DATABASE: '{{ database }}'
             - DCM_SCHEMA: '{{ schema }}'
             - MODEL_VERSION: '{{ model_version }}'
+            - FS_SCHEMA: '{{ fs_schema }}'
+            - FV_NAME: '{{ fv_name }}'
+            - FV_VERSION: '{{ fv_version }}'
           properties:
             result_stage: '@{{ schema }}.SNOWHEALTH_PIPELINE_RESULTS'
 

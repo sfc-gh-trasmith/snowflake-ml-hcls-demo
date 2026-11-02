@@ -15,7 +15,8 @@ venv/
 
 # Snowflake
 .ruff_cache/
-pipeline/out/
+resources/pipeline/out/
+resources/feature_store/out/
 
 # IDE
 .vscode/
