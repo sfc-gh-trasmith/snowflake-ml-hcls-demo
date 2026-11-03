@@ -21,9 +21,10 @@
       { "id": "overview", "title": "Overview", "producerNotes": "Hand-written from the repository layout." },
       { "id": "architecture", "title": "Architecture" },
       { "id": "environments", "title": "Environments, identity and access", "dataSources": [{ "type": "file", "path": "scripts/setup_cicd.sql" }] },
-      { "id": "feature-store", "title": "Declarative feature store project", "dataSources": [{ "type": "file", "path": "resources/feature_store/" }] },
-      { "id": "dcm-project", "title": "DCM project", "dataSources": [{ "type": "file", "path": "resources/pipeline/" }] },
-      { "id": "pipeline", "title": "Pipeline (task graph)", "dataSources": [{ "type": "file", "path": "resources/pipeline/sources/definitions/pipeline.yml" }] },
+      { "id": "projects", "title": "DCM projects", "producerNotes": "Parent section for the feature store and ML pipeline projects; describes how they relate and deploy order." },
+      { "id": "feature-store", "title": "Feature Store project", "dataSources": [{ "type": "file", "path": "resources/feature_store/" }] },
+      { "id": "dcm-project", "title": "ML Pipeline project", "dataSources": [{ "type": "file", "path": "resources/pipeline/" }] },
+      { "id": "pipeline", "title": "Task graph", "dataSources": [{ "type": "file", "path": "resources/pipeline/sources/definitions/pipeline.yml" }] },
       { "id": "deploy-lifecycle", "title": "Deployment lifecycle", "dataSources": [{ "type": "file", "path": "scripts/deploy_env.sh" }, { "type": "file", "path": "scripts/bootstrap_env.sql" }] },
       { "id": "cicd", "title": "CI/CD with GitHub Actions", "dataSources": [{ "type": "file", "path": ".github/workflows/" }] },
       { "id": "operations", "title": "Operations", "dataSources": [{ "type": "file", "path": "scripts/run_pipeline.sh" }] },
@@ -61,6 +62,10 @@
     h1 { font-family: var(--font-head); font-weight: 800; text-transform: uppercase; letter-spacing: 0.02em; font-size: clamp(26px, 4vw, 36px); margin: 0 0 6px; color: #FFFFFF; }
     h2 { font-family: var(--font-head); font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; margin-top: 48px; padding-top: 12px; border-top: 3px solid var(--sf-blue); color: var(--heading); }
     h3 { font-family: var(--font-head); font-weight: 700; margin-top: 28px; color: var(--accent); }
+    h3.project { font-size: 1.35em; margin-top: 40px; padding: 8px 12px; background: var(--soft); border-left: 4px solid var(--sf-blue); border-radius: 0 8px 8px 0; color: var(--heading); }
+    h4 { font-family: var(--font-head); font-weight: 700; margin: 24px 0 8px; color: var(--accent); }
+    nav a.sub { padding-left: 22px; font-size: 13px; color: var(--muted); }
+    nav a.sub2 { padding-left: 36px; font-size: 12.5px; color: var(--muted); }
     .lead { color: #E6F6FC; font-size: 17px; margin: 0; }
     .hero { background: linear-gradient(135deg, var(--sf-mid-blue), var(--sf-blue)); border-radius: 12px; padding: clamp(20px, 4vw, 32px); margin-bottom: 8px; }
     a { color: var(--accent); }
@@ -98,9 +103,10 @@
     <a href="#overview">Overview</a>
     <a href="#architecture">Architecture</a>
     <a href="#environments">Environments &amp; access</a>
-    <a href="#feature-store">Feature store project</a>
-    <a href="#dcm-project">DCM project</a>
-    <a href="#pipeline">Pipeline (task graph)</a>
+    <a href="#projects">DCM projects</a>
+    <a class="sub" href="#feature-store">Feature Store project</a>
+    <a class="sub" href="#dcm-project">ML Pipeline project</a>
+    <a class="sub2" href="#pipeline">Task graph</a>
     <a href="#deploy-lifecycle">Deployment lifecycle</a>
     <a href="#cicd">CI/CD</a>
     <a href="#operations">Operations</a>
@@ -236,7 +242,22 @@ ALTER USER SVC_MLOPS_GH_DEV SET WORKLOAD_IDENTITY = (
     <h3>Authorization</h3>
     <p>Each deployer role <b>owns its environment database</b> and every object in it, so DCM and the feature store can create, alter and drop freely there — and nowhere else. Shared grants: <code>USAGE</code> on <code>COMPUTE_WH</code>, <code>USAGE, MONITOR</code> on <code>MLOPS_COMPUTE_POOL</code>, and <code>EXECUTE TASK</code> on the account. Both roles roll up to <code>SYSADMIN</code>.</p>
 
-    <h2 id="feature-store">Declarative feature store project</h2>
+    <h2 id="projects">DCM projects</h2>
+    <p>Everything deployed to an environment comes from two declarative projects under <code>resources/</code>. Both use a <code>manifest.yml</code> with <code>DEV</code> / <code>PROD</code> targets and templating, both follow <b>plan → apply</b>, and both are deployed together, in order, by <code>scripts/deploy_env.sh</code>.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Project</th><th>Folder</th><th>Tool</th><th>Owns</th><th>Lands in</th></tr></thead>
+      <tbody>
+        <tr><td><a href="#feature-store">Feature Store project</a></td><td><code>resources/feature_store/</code></td><td><code>snow feature plan / apply</code></td><td><i>What the features are</i>: entity, batch source, feature view</td><td><code>&lt;ENV&gt;_MLOPS_DB.FEATURE_STORE</code></td></tr>
+        <tr><td><a href="#dcm-project">ML Pipeline project</a></td><td><code>resources/pipeline/</code></td><td><code>snow dcm plan / deploy</code></td><td><i>How they're computed and used</i>: code bundles, task graph, schedule</td><td><code>&lt;ENV&gt;_MLOPS_DB.MODELS</code></td></tr>
+      </tbody>
+    </table></div>
+    <div class="note">Only the ML Pipeline project is a DCM project object (<code>MLOPS_PIPELINE</code>). The Feature Store project uses the Feature Store's own declarative workflow, but is versioned, planned and promoted the same way, and always in the same run.</div>
+    <p><b>Deploy order:</b> bootstrap → <b>Feature Store project</b> → <b>ML Pipeline project</b>. The pipeline's tasks refresh and read the feature view, so it must exist first. At runtime the projects connect like this:</p>
+<pre><code>FEATURE_ENGINEERING   ─writes→      MODELS.MLOPS_PIPELINE_FEATURES       (batch source)
+FEATURE_STORE_REFRESH ─refreshes→   FEATURE_STORE.MLOPS_PIPELINE_FV$V1   (dynamic table)
+MODEL_TRAINING / MODEL_DEPLOYMENT ─generate_training_set(spine, [FV])→ features + label</code></pre>
+
+    <h3 class="project" id="feature-store">Feature Store project</h3>
     <p><code>resources/feature_store/</code> is a <a href="https://docs.snowflake.com/en/developer-guide/snowflake-ml/feature-store/feature-development-lifecycle">declarative feature store</a> project, deployed with <code>snow feature plan</code> and <code>snow feature apply</code>.</p>
 <pre><code>manifest_version: 1
 type: feature_store
@@ -255,7 +276,7 @@ templating:
       </tbody>
     </table></div>
 
-    <h3>How the pipeline consumes it</h3>
+    <h4>How the pipeline consumes it</h4>
 <pre><code>fs = FeatureStore(session, database=DB, name="FEATURE_STORE", ...)
 fv = fs.get_feature_view("MLOPS_PIPELINE_FV", "V1")
 df = fs.generate_training_set(
@@ -265,7 +286,7 @@ df = fs.generate_training_set(
     spine_label_cols=["UNITS_SOLD"])</code></pre>
     <p>The label comes from the spine (raw data), never from the feature view. The feature view's version is a templating variable (<code>fv_version</code>) in the DCM manifest, so training can be repointed at <code>V2</code> by changing one value.</p>
 
-    <h3>Change semantics</h3>
+    <h4>Change semantics</h4>
     <div class="table-wrap"><table>
       <thead><tr><th>Edit</th><th>Plan op</th><th>CI behaviour</th></tr></thead>
       <tbody>
@@ -275,8 +296,8 @@ df = fs.generate_training_set(
       </tbody>
     </table></div>
 
-    <h2 id="dcm-project">DCM project</h2>
-    <p><code>resources/pipeline/</code> is a DCM project (manifest v2) whose definitions are written in Pipeline Builder YAML.</p>
+    <h3 class="project" id="dcm-project">ML Pipeline project</h3>
+    <p><code>resources/pipeline/</code> is the DCM project (manifest v2, object <code>&lt;ENV&gt;_MLOPS_DB.MODELS.MLOPS_PIPELINE</code>). Its definitions are written in Pipeline Builder YAML and declare the code bundles, the task graph and its schedule.</p>
 <pre><code>manifest_version: 2
 type: DCM_PROJECT
 default_target: DEV
@@ -301,10 +322,10 @@ assets:
   model_training_bundle:      { path: 'code_bundles/model_training/**/*' }
   model_deployment_bundle:    { path: 'code_bundles/model_deployment/**/*' }</code></pre>
 
-    <h3>Code bundles</h3>
+    <h4>Code bundles</h4>
     <p>Each <code>code_bundles/&lt;step&gt;/</code> directory holds a Python entrypoint plus <code>code_bundle.yml</code>. Bundles use <code>type: ml</code> (pre-built ML runtime) and <code>compute_type: compute_pool</code>, so each step runs as an ML Job on <code>MLOPS_COMPUTE_POOL</code>.</p>
 
-    <h3>Passing configuration into Python</h3>
+    <h4>Passing configuration into Python</h4>
     <p>Templating values flow to the scripts as environment variables declared on each task:</p>
 <pre><code>manifest.yml templating  →  pipeline.yml env_vars  →  os.environ in the bundle
   database                    DCM_DATABASE
@@ -313,7 +334,7 @@ assets:
   model_version               MODEL_VERSION   ("latest" or a pinned version)</code></pre>
     <p>No database names are hard-coded in Python, so the same bundles run in every environment.</p>
 
-    <h2 id="pipeline">Pipeline (task graph)</h2>
+    <h4 id="pipeline">Task graph</h4>
     <div class="diagram"><svg viewBox="0 0 900 240" role="img" aria-label="Task graph from root through feature engineering, feature store refresh, training and deployment, with a finalizer">
       <rect class="box"  x="10"  y="30" width="150" height="64" rx="8"/><text x="25"  y="58" font-size="13">ROOT</text><text class="small" x="25"  y="80">cron trigger</text>
       <rect class="box2" x="190" y="30" width="150" height="64" rx="8"/><text x="205" y="58" font-size="13">FEATURE_ENG</text><text class="small" x="205" y="80">code bundle</text>
@@ -341,7 +362,7 @@ assets:
     </table></div>
     <div class="note">The feature-engineering step writes with <code>mode("truncate")</code>, not <code>overwrite</code>: overwrite replaces the table, which would force the feature view's dynamic table to reinitialize.</div>
 
-    <h3>Quality gate and model versioning</h3>
+    <h4>Quality gate and model versioning</h4>
     <ul>
       <li>Training registers a timestamped version (<code>PIPELINE_YYYYMMDD_HHMM</code>) with MAE/RMSE/R² metrics.</li>
       <li>Deployment evaluates the chosen version on the holdout split (same spine, same split seed as training). If RMSE exceeds the threshold it raises, the task fails, and the previous default stays live.</li>
