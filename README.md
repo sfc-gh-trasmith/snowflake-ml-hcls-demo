@@ -1,15 +1,18 @@
 # MLOps with DCM on Snowflake
 
-A **template** for running ML workloads on Snowflake as code, end to end:
-feature definitions, training and promotion pipelines, and environment
-promotion are all declared in Git and deployed with **DCM projects**, the
-**declarative Feature Store**, and **GitHub Actions** (OIDC, no secrets).
+ML pipelines on Snowflake tend to grow out of notebooks and one-off scripts:
+feature definitions get copied between environments, tasks are edited by hand,
+and nobody can say what is actually running in PROD. This **template** makes
+features, training pipelines and promotion declarative. **DCM projects** and
+the **declarative Feature Store** turn every change into a reviewable plan,
+then apply that same plan to DEV and PROD through **GitHub Actions** (OIDC, no
+secrets).
 
 The bundled model (an XGBoost regressor on synthetic transaction data) is a
 placeholder. Swap in your own data, features and training code; the deployment
 pattern stays the same.
 
-> Full documentation: [`docs/docs.html`](docs/docs.html)
+> Full documentation: [here](https://sfc-gh-trasmith.github.io/snowflake-mlops-dcm/docs.html)
 
 ## What the template demonstrates
 
