@@ -67,7 +67,7 @@ MLOPS_TASK_NOTIFY_COMPLETION (finalizer)
 │   ├── ci.yml                 PR → plan DEV
 │   ├── deploy.yml             main → deploy + run DEV → deploy + run PROD
 │   └── _deploy-env.yml        reusable per-environment job (OIDC, CLI setup)
-├── resources/                 deployable projects
+├── resources/                 deployable projects (deploy guide: resources/README.md)
 │   ├── feature_store/         declarative Feature Store (snow feature)
 │   └── pipeline/              DCM project: pipeline.yml + code_bundles/
 ├── scripts/
@@ -112,6 +112,9 @@ interpreter as the Snowflake CLI, for example:
 **3. Work through Git.** Open a PR: `ci.yml` plans DEV. Merge: `deploy.yml`
 deploys and runs DEV, then promotes to PROD. Add required reviewers to the
 `prod` environment to gate promotion behind approval.
+
+For deploy order (Feature Store before pipeline), what each project owns, and
+day-2 operations, see [`resources/README.md`](resources/README.md).
 
 ## Adapting the template
 
