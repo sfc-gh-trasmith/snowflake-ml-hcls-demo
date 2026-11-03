@@ -203,7 +203,7 @@ CREATE STAGE IF NOT EXISTS DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE_RESULTS;
 EXECUTE DCM PROJECT DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE
     DEPLOY
     USING CONFIGURATION DEV
-    FROM 'snow://workspace/USER$.PUBLIC."snowflake-ml-hcls-demo"/versions/live/resources/pipeline';
+    FROM 'snow://workspace/USER$.PUBLIC."snowflake-mlops-dcm"/versions/live/resources/pipeline';
 ```
 
 ### Option B: Deploy from CLI
