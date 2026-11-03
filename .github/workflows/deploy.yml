@@ -9,6 +9,9 @@ on:
       - "resources/**"
       - "scripts/**"
       - ".github/workflows/**"
+      - "!**/*.md"
+      - "!**/.folder"
+      - "!**/.gitkeep"
   workflow_dispatch:
     inputs:
       run-pipeline:
