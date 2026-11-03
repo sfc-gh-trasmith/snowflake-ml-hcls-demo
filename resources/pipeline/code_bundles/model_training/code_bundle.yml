@@ -1,0 +1,9 @@
+bundle:
+  type: ml
+  compute_type: compute_pool
+  language: python
+  compute_options:
+    compute_pool: MLOPS_COMPUTE_POOL
+    query_warehouse: COMPUTE_WH
+  properties:
+    result_stage: '@MODELS.MLOPS_PIPELINE_RESULTS'

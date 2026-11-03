@@ -1,0 +1,39 @@
+# Promotion: merge to main → deploy + run DEV (dev data) → deploy + run PROD
+# (prod data). PROD only starts after DEV deployed and ran end-to-end.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "resources/**"
+      - "scripts/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+    inputs:
+      run-pipeline:
+        description: Execute the task DAG after each deploy
+        type: boolean
+        default: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  dev:
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment: dev
+      target: DEV
+      mode: deploy
+      run-pipeline: ${{ github.event_name == 'push' || inputs.run-pipeline }}
+
+  prod:
+    needs: dev
+    uses: ./.github/workflows/_deploy-env.yml
+    with:
+      environment: prod
+      target: PROD
+      mode: deploy
+      run-pipeline: ${{ github.event_name == 'push' || inputs.run-pipeline }}

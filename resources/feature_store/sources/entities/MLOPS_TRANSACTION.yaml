@@ -1,0 +1,6 @@
+kind: Entity
+name: MLOPS_TRANSACTION
+join_keys:
+  - name: TRANSACTION_ID
+    type: StringType
+description: One retail transaction (SKU x store x channel x date). Feature grain for demand forecasting.

@@ -1,0 +1,46 @@
+manifest_version: 2
+type: DCM_PROJECT
+default_target: DEV
+
+targets:
+  DEV:
+    account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
+    project_name: "DEV_MLOPS_DB.MODELS.MLOPS_PIPELINE"
+    project_owner: MLOPS_DEV_DEPLOYER
+    templating_config: DEV
+
+  PROD:
+    account_identifier: <YOUR_ORG>-<YOUR_ACCOUNT>
+    project_name: "PRD_MLOPS_DB.MODELS.MLOPS_PIPELINE"
+    project_owner: MLOPS_PROD_DEPLOYER
+    templating_config: PROD
+
+templating:
+  defaults:
+    database: "DEV_MLOPS_DB"
+    schema: "MODELS"
+    warehouse: "COMPUTE_WH"
+    compute_pool: "MLOPS_COMPUTE_POOL"
+    cron_schedule: "0 6 * * 1 America/New_York"
+    model_version: "latest"
+    fs_schema: "FEATURE_STORE"
+    fv_name: "MLOPS_PIPELINE_FV"
+    fv_version: "V1"
+
+  configurations:
+    DEV:
+      database: "DEV_MLOPS_DB"
+      schema: "MODELS"
+
+    PROD:
+      database: "PRD_MLOPS_DB"
+      schema: "MODELS"
+      cron_schedule: "0 4 * * 1 America/New_York"
+
+assets:
+  feature_engineering_bundle:
+    path: 'code_bundles/feature_engineering/**/*'
+  model_training_bundle:
+    path: 'code_bundles/model_training/**/*'
+  model_deployment_bundle:
+    path: 'code_bundles/model_deployment/**/*'

@@ -1,0 +1,69 @@
+# Reusable: plan / deploy / run the MLOps ML stack in one environment.
+# Called by ci.yml (PR → plan DEV) and deploy.yml (main → DEV, then PROD).
+name: _deploy-env
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub environment (dev | prod) — selects the OIDC service user
+        type: string
+        required: true
+      target:
+        description: Manifest target (DEV | PROD)
+        type: string
+        required: true
+      mode:
+        description: plan | deploy
+        type: string
+        required: true
+      run-pipeline:
+        description: Execute the task DAG once and validate outputs after deploy
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  snowflake:
+    name: ${{ inputs.mode }} ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    # The environment name is part of the OIDC subject claim:
+    #   repo:<owner>@<id>/<repo>@<id>:environment:<environment>
+    # → SVC_MLOPS_GH_DEV / SVC_MLOPS_GH_PROD (scripts/setup_cicd.sql)
+    environment: ${{ inputs.environment }}
+    concurrency:
+      group: snowflake-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_ROLE: ${{ inputs.target == 'PROD' && 'MLOPS_PROD_DEPLOYER' || 'MLOPS_DEV_DEPLOYER' }}
+      SNOWFLAKE_WAREHOUSE: COMPUTE_WH
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      # `snow feature` needs snowflake-ml-python[feature_store] in the same
+      # interpreter as the Snowflake CLI, so install them together.
+      - name: Install Snowflake CLI + feature store extra
+        run: |
+          uv tool install --python 3.12 snowflake-cli --with "snowflake-ml-python[feature_store]"
+          snow --version
+
+      - name: Configure Snowflake CLI (OIDC)
+        uses: snowflakedb/snowflake-actions@v3
+        with:
+          use-oidc: true
+          # Reusing the snow on PATH puts the action in air-gapped mode, which
+          # requires an explicit audience.
+          oidc-audience: snowflakecomputing.com
+
+      - name: ${{ inputs.mode }} ${{ inputs.target }}
+        run: bash scripts/deploy_env.sh "${{ inputs.target }}" "${{ inputs.mode }}"
+
+      - name: Run pipeline end-to-end
+        if: inputs.mode == 'deploy' && inputs.run-pipeline
+        run: bash scripts/run_pipeline.sh "${{ inputs.target }}"

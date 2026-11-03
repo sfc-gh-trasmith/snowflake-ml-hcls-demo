@@ -1,0 +1,17 @@
+# Offline batch feature view (dynamic table) consumed by the pipeline's
+# training and deployment tasks via FeatureStore.generate_training_set().
+# Refreshed explicitly by MLOPS_TASK_FEATURE_STORE_REFRESH each run;
+# the 1-day schedule is a safety net.
+kind: BatchFeatureView
+name: MLOPS_PIPELINE_FV
+version: V1
+description: Demand-forecasting features (calendar, cyclical, lag, rolling, interaction)
+online: false
+entities:
+  - MLOPS_TRANSACTION
+sources:
+  - name: MLOPS_PIPELINE_FEATURES_SRC
+    source_type: Batch
+timestamp_col: TRANSACTION_DATE
+refresh_freq: 1 day
+warehouse: '{{ warehouse }}'
